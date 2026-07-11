@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/svg+xml" href="images/SVG%20Shapes%20Logo%20MASTER.svg">
+<link rel="apple-touch-icon" href="images/apple-touch-icon.png">
+<title>SVG Editor</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script>
+    /* Restore the saved workspace split BEFORE first paint so the divider renders firmly at its
+       saved position (no default-layout flash/jump). Set on documentElement so it inherits into
+       the panels' flex-grow var; ui-common.js keeps the wrapper inline value in sync afterwards,
+       and resetWorkspace() clears both. Mirrors the WS_KEY / applySplit logic in ui-common.js. */
+    try {
+      var pfWsSplit = parseFloat(localStorage.getItem('pf_wsSplit'));
+      if (pfWsSplit >= 0 && pfWsSplit < 1) {
+        document.documentElement.style.setProperty('--ws-top', pfWsSplit);
+        document.documentElement.style.setProperty('--ws-bottom', 1 - pfWsSplit);
+        if (pfWsSplit === 0) document.documentElement.classList.add('ws-top-collapsed');
+      }
+    } catch (e) {}
+  </script>
+</head>
+<body>
+
+<iframe id="cpIframe" src="pages/colorPicker/index.html" style="position: fixed; inset: 0; width: 100%; height: 100%; border: none; z-index: 9999; background: transparent; pointer-events: none;"></iframe>
+
+  <div class="app-header">
+    <div class="header-left-controls">
+      <button class="ws-reset-btn" onclick="resetWorkspace()" title="Reset panel layout">Reset Workspace</button>
+      <button id="btnToggleHistory" class="header-guide-btn" type="button" aria-pressed="false" title="Show the History panel"><span class="header-guide-label">History</span><span class="header-guide-check" aria-hidden="true"></span></button>
+    </div>
+    <h2><img class="app-logo" src="images/SVG%20Shapes%20Logo%20MASTER.svg" alt="" role="button" tabindex="0" aria-label="Load the SVG Editor logo into the editor">SVG Editor</h2>
+    <div class="header-guide-controls" aria-label="Rulers and guides controls">
+      <button id="btnToggleRulers" class="header-guide-btn is-checked" type="button" aria-pressed="true" title="Hide rulers"><span class="header-guide-label">Rulers</span><span class="header-guide-check" aria-hidden="true"></span></button>
+      <button id="btnToggleGuides" class="header-guide-btn is-checked" type="button" aria-pressed="true" title="Hide guides"><span class="header-guide-label">Guides</span><span class="header-guide-check" aria-hidden="true"></span></button>
+      <button id="btnClearGuides" class="header-guide-btn" type="button" title="Clear all guides">Clear Guides</button>
+      <button id="btnToggleSnap" class="header-guide-btn header-snap-btn is-checked" type="button" aria-pressed="true" title="Disable snapping (hold Ctrl to invert while editing)"><span class="header-guide-label">Snap</span><span class="header-guide-check" aria-hidden="true"></span></button>
+    </div>
+    <div class="header-action-controls">
+      <button id="btnAbout" class="settings-btn about-btn" type="button" title="SVG Editor Information" aria-haspopup="dialog" aria-expanded="false" aria-controls="aboutDialog">
+        <svg class="icon-svg about-icon"><use href="#icon-info" xlink:href="#icon-info"></use></svg>
+        <span>Info</span>
+      </button>
+      <button id="btnSettings" class="settings-btn" type="button" title="Settings" aria-label="Settings">
+        <svg class="icon-svg settings-icon"><use href="#icon-settings" xlink:href="#icon-settings"></use></svg>
+        <span>Settings</span>
+      </button>
+    </div>
+    <button id="appVersion" class="app-version" type="button" data-app-version hidden aria-haspopup="dialog" aria-expanded="false" aria-controls="versionDialog" aria-label="Open official version details">
+      <svg class="icon-svg app-version-icon"><use href="#icon-version" xlink:href="#icon-version"></use></svg>
+      <span class="app-version-text" data-app-version-text></span>
+    </button>
+  </div>
+
+  <div id="aboutOverlay" class="about-overlay" hidden>
+    <section id="aboutDialog" class="about-dialog" role="dialog" aria-modal="true" aria-labelledby="aboutDialogTitle" aria-describedby="aboutDescription">
+      <div class="about-dialog-head">
+        <h3 id="aboutDialogTitle" class="about-dialog-title">
+          <svg class="icon-svg about-title-icon" aria-hidden="true"><use href="#icon-info" xlink:href="#icon-info"></use></svg>
+          <span>Information</span>
+        </h3>
+        <button id="aboutCloseBtn" class="about-close-btn" type="button" aria-label="Close Information">&times;</button>
+      </div>
+
+      <div class="about-dialog-body">
+        <div class="about-hero">
+          <img class="about-logo" src="images/SVG%20Shapes%20Logo%20MASTER.svg" alt="" aria-hidden="true">
+          <div class="about-intro">
+            <h2 class="about-app-name">SVG Editor</h2>
+            <p class="about-copyright-subhead">&copy; 2026 Scott Simon. All rights reserved.</p>
+            <p id="aboutDescription" class="about-description">A focused browser-based workspace for creating, editing, optimizing, and exporting SVG artwork. Designed to make everyday vector work fast, approachable, and precise.</p>
+          </div>
+        </div>
+
+        <div class="about-meta-grid">
+          <div class="about-meta-card">
+            <span>Version</span>
+            <strong data-app-version hidden></strong>
+          </div>
+          <div class="about-meta-card">
+            <span>Made by</span>
+            <strong>Scott Simon</strong>
+          </div>
+        </div>
+
+        <p class="about-build-note">Built with HTML, CSS, and JavaScript.</p>
+      </div>
+
+      <div class="about-dialog-footer">
+        <button id="aboutDismissBtn" class="about-dismiss-btn" type="button">Close</button>
+      </div>
+    </section>
+  </div>
+
+  <div id="versionOverlay" class="version-overlay" hidden>
+    <section id="versionDialog" class="version-dialog" role="dialog" aria-modal="true" aria-labelledby="versionDialogTitle">
+      <div class="version-dialog-head">
+        <div class="version-dialog-id">
+          <span class="version-dialog-icon">
+            <svg class="icon-svg"><use href="#icon-version" xlink:href="#icon-version"></use></svg>
+          </span>
+          <div class="version-dialog-title-wrap">
+            <span class="version-kicker">Official Version</span>
+            <h3 id="versionDialogTitle" class="version-dialog-title">SVG Editor</h3>
+          </div>
+        </div>
+        <button id="versionCloseBtn" class="version-close-btn" type="button" aria-label="Close official version details">
+          <svg class="icon-svg"><use href="#icon-clear" xlink:href="#icon-clear"></use></svg>
+        </button>
+      </div>
+
+      <div class="version-dialog-body">
+        <div class="version-stamp">
+          <span class="version-stamp-label">Last Updated</span>
+          <strong id="versionFullDateTime" data-version-detail="fullDateTime"></strong>
+        </div>
+        <div class="version-detail-grid">
+          <div class="version-detail">
+            <span>Day</span>
+            <strong data-version-detail="dayOfWeek"></strong>
+          </div>
+          <div class="version-detail">
+            <span>Month</span>
+            <strong data-version-detail="month"></strong>
+          </div>
+          <div class="version-detail">
+            <span>Date</span>
+            <strong data-version-detail="dateLong"></strong>
+          </div>
+          <div class="version-detail">
+            <span>Time</span>
+            <strong data-version-detail="time"></strong>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div id="newArtboardOverlay" class="na-overlay" hidden>
+    <section id="newArtboardDialog" class="na-dialog" role="dialog" aria-modal="true" aria-labelledby="naDialogTitle">
+      <div class="na-head">
+        <h3 id="naDialogTitle" class="na-title">New Artboard</h3>
+        <button id="naCloseBtn" class="na-close-btn" type="button" aria-label="Close" onclick="closeNewArtboard()">&times;</button>
+      </div>
+
+      <div class="na-body">
+        <div class="na-main">
+          <div class="na-preview-wrap">
+            <div class="na-stage"><div class="na-preview" id="naPreview"></div></div>
+            <span class="na-preview-dims" id="naPreviewDims">1024 &times; 1024</span>
+          </div>
+          <div class="na-fields">
+            <div class="na-field-rows">
+              <label class="na-field">
+                <span class="na-field-label">Width</span>
+                <span class="na-input-wrap"><input id="naWidth" class="na-input" type="number" min="1" max="10000" inputmode="numeric" autocomplete="off" spellcheck="false" value="1024"><span class="na-unit">px</span></span>
+              </label>
+              <label class="na-field">
+                <span class="na-field-label">Height</span>
+                <span class="na-input-wrap"><input id="naHeight" class="na-input" type="number" min="1" max="10000" inputmode="numeric" autocomplete="off" spellcheck="false" value="1024"><span class="na-unit">px</span></span>
+              </label>
+              <span class="na-bracket" aria-hidden="true"></span>
+              <button id="naConstrain" class="na-constrain" type="button" aria-pressed="false" aria-label="Constrain proportions" title="Constrain proportions">
+                <svg class="icon-svg"><use href="#icon-link" xlink:href="#icon-link"></use></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="na-presets" id="naPresets" role="group" aria-label="Preset artboard sizes">
+          <button class="na-preset" type="button" data-w="24" data-h="24">24&times;24</button>
+          <button class="na-preset" type="button" data-w="1024" data-h="1024">1024&times;1024</button>
+          <button class="na-preset" type="button" data-w="2048" data-h="2048">2048&times;2048</button>
+          <button class="na-preset" type="button" data-w="1920" data-h="1080">1920&times;1080</button>
+          <button class="na-preset" type="button" data-w="3840" data-h="2160">3840&times;2160</button>
+        </div>
+      </div>
+
+      <div class="na-footer" id="naFooter">
+        <button class="na-btn na-btn-ghost" type="button" onclick="closeNewArtboard()">Cancel</button>
+        <button id="naCreateBtn" class="na-btn na-btn-primary" type="button" onclick="confirmNewArtboard()">Create</button>
+      </div>
+
+      <div class="na-confirm" id="naConfirm" hidden>
+        <p class="na-confirm-msg">Replace the current artwork? Your loaded SVG will be discarded.</p>
+        <div class="na-confirm-actions">
+          <button class="na-btn na-btn-ghost" type="button" onclick="cancelReplaceArtboard()">Keep Current</button>
+          <button class="na-btn na-btn-danger" type="button" onclick="commitNewArtboard()">Replace &amp; Create</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="layout-wrapper">
+    <div class="panel">
+      <div class="panel-header-row">
+        <div class="new-artboard-actions">
+          <button id="btnNewArtboard" class="new-artboard-btn" type="button" onclick="openNewArtboard()" title="Create a new blank artboard">
+            <svg class="icon-svg"><use href="#icon-plus" xlink:href="#icon-plus"></use></svg>
+            <span>New Artboard</span>
+          </button>
+          <button id="btnQuickArtboard" class="quick-artboard-btn" type="button" onclick="createQuickArtboard()" title="Immediately start a new 1024 × 1024 project">Quick AB</button>
+        </div>
+        <div class="canvas-toolbar">
+          <button id="btnSelectionTool" class="canvas-tool-btn" onclick="toggleSelectionTool(this)" title="Selection (V)" aria-label="Selection Tool" disabled>
+            <svg class="icon-svg"><use href="#icon-selection-tool" xlink:href="#icon-selection-tool"></use></svg>
+          </button>
+          <button id="btnDirectSelectionTool" class="canvas-tool-btn" onclick="toggleDirectSelectionTool(this)" title="Direct Selection (A)" aria-label="Direct Selection Tool" disabled>
+            <svg class="icon-svg"><use href="#icon-direct-selection" xlink:href="#icon-direct-selection"></use></svg>
+          </button>
+          <button id="btnHandTool" class="canvas-tool-btn" onclick="toggleHandTool(this)" title="Hand" aria-label="Hand Tool" disabled>
+            <svg class="icon-svg"><use href="#icon-hand-tool" xlink:href="#icon-hand-tool"></use></svg>
+          </button>
+          <button id="btnArtboardTool" class="canvas-tool-btn" onclick="toggleArtboardTool(this)" title="Artboard (Shift+O)" aria-label="Artboard Tool" disabled>
+            <svg class="icon-svg"><use href="#icon-artboard-tool" xlink:href="#icon-artboard-tool"></use></svg>
+          </button>
+          <span class="canvas-toolbar-divider" aria-hidden="true"></span>
+          <button id="btnPenTool" class="canvas-tool-btn" onclick="togglePenTool(this)" title="Pen (P)" aria-label="Pen Tool" disabled>
+            <svg class="icon-svg"><use href="#icon-pen-tool" xlink:href="#icon-pen-tool"></use></svg>
+          </button>
+          <span class="canvas-toolbar-divider" aria-hidden="true"></span>
+          <button id="btnRectTool" class="canvas-tool-btn" onclick="toggleRectTool(this)" title="Rectangle (R)" aria-label="Rectangle Tool" disabled>
+            <svg class="icon-svg"><use href="#icon-rect-tool" xlink:href="#icon-rect-tool"></use></svg>
+          </button>
+          <button id="btnEllipseTool" class="canvas-tool-btn" onclick="toggleEllipseTool(this)" title="Ellipse (E)" aria-label="Ellipse Tool" disabled>
+            <svg class="icon-svg"><use href="#icon-ellipse-tool" xlink:href="#icon-ellipse-tool"></use></svg>
+          </button>
+          <button id="btnTriangleTool" class="canvas-tool-btn" onclick="toggleTriangleTool(this)" title="Triangle" aria-label="Triangle Tool" disabled>
+            <svg class="icon-svg"><use href="#icon-triangle-tool" xlink:href="#icon-triangle-tool"></use></svg>
+          </button>
+          <button id="btnLineTool" class="canvas-tool-btn" onclick="toggleLineTool(this)" title="Line Segment (L)" aria-label="Line Segment Tool" disabled>
+            <svg class="icon-svg"><use href="#icon-line-tool" xlink:href="#icon-line-tool"></use></svg>
+          </button>
+          <span class="canvas-toolbar-divider" aria-hidden="true"></span>
+          <button id="btnScissorsTool" class="canvas-tool-btn" onclick="toggleScissorsTool(this)" title="Scissors (C)" aria-label="Scissors Tool" disabled>
+            <svg class="icon-svg"><use href="#icon-scissors-tool" xlink:href="#icon-scissors-tool"></use></svg>
+          </button>
+        </div>
+        <div class="history-bar">
+          <button id="btnUndo" class="canvas-tool-btn" onclick="undoHistory()" title="Undo (Ctrl+Z)" aria-label="Undo" disabled>
+            <svg class="icon-svg"><use href="#icon-undo" xlink:href="#icon-undo"></use></svg>
+          </button>
+          <button id="btnRedo" class="canvas-tool-btn" onclick="redoHistory()" title="Redo (Ctrl+Shift+Z)" aria-label="Redo" disabled>
+            <svg class="icon-svg"><use href="#icon-redo" xlink:href="#icon-redo"></use></svg>
+          </button>
+        </div>
+        <div class="pen-mode-bar" id="penModeBar" hidden>
+          <button id="btnPenModeDraw" class="pen-mode-btn active" type="button" onclick="setPenToolMode('draw', this)" title="Pen: draw paths">Draw</button>
+          <button id="btnPenModeAdd" class="pen-mode-btn" type="button" onclick="setPenToolMode('add', this)" title="Pen: add anchor points">Add</button>
+          <button id="btnPenModeMinus" class="pen-mode-btn" type="button" onclick="setPenToolMode('minus', this)" title="Pen: delete anchor points">Minus</button>
+        </div>
+      </div>
+
+        <div class="preview-container">
+          <div class="side-panel panel-properties">
+            <h4 class="panel-title">
+            <span>Properties</span>
+          </h4>
+          <div class="props-wrap" id="propertiesWrap">
+            <div class="props-scroll" id="propertiesScroll">
+          <p class="props-empty" id="propertiesEmpty" hidden>No selection.</p>
+          <div class="props-grid is-empty" id="propertiesGrid">
+            <label class="prop-label" for="propX" title="Drag to change · click to type">X</label>
+            <div class="prop-field"><input class="prop-value" id="propX" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" value="-" disabled><span class="prop-unit">px</span></div>
+            <label class="prop-label" for="propY" title="Drag to change · click to type">Y</label>
+            <div class="prop-field"><input class="prop-value" id="propY" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" value="-" disabled><span class="prop-unit">px</span></div>
+            <label class="prop-label" for="propWidth" title="Drag to change · click to type">Width</label>
+            <div class="prop-field"><input class="prop-value" id="propWidth" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" value="-" disabled><span class="prop-unit">px</span></div>
+            <label class="prop-label" for="propHeight" title="Drag to change · click to type">Height</label>
+            <div class="prop-field"><input class="prop-value" id="propHeight" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" value="-" disabled><span class="prop-unit">px</span></div>
+            <button id="propConstrainBtn" class="props-link" type="button" aria-pressed="false" title="Constrain proportions" aria-label="Constrain Width and Height proportions" disabled>
+              <svg class="icon-svg"><use href="#icon-link" xlink:href="#icon-link"></use></svg>
+            </button>
+            <div class="props-scale-opts" id="propsScaleOpts">
+              <label class="cb-label"><input type="checkbox" id="propScaleStrokes" onchange="toggleScaleStrokesEffects(this.checked)"> <span class="cb-custom"></span> Scale strokes &amp; effects</label>
+              <label class="cb-label"><input type="checkbox" id="propScaleCorners" onchange="toggleScaleCorners(this.checked)"> <span class="cb-custom"></span> Scale corners</label>
+              <label class="cb-label props-ab-only"><input type="checkbox" id="propScaleContents" onchange="toggleScaleContentsWithArtboard(this.checked)"> <span class="cb-custom"></span> Scale contents with artboard</label>
+            </div>
+            <div class="props-transform" id="propsTransformGroup">
+              <div class="props-flip-group" role="group" aria-label="Flip selected element">
+                <button class="props-transform-btn" type="button" data-prop-flip="horizontal" title="Flip Horizontally" aria-label="Flip Horizontally" disabled>
+                  <svg class="icon-svg"><use href="#icon-flip-horizontal" xlink:href="#icon-flip-horizontal"></use></svg>
+                </button>
+                <button class="props-transform-btn" type="button" data-prop-flip="vertical" title="Flip Vertically" aria-label="Flip Vertically" disabled>
+                  <svg class="icon-svg"><use href="#icon-flip-vertical" xlink:href="#icon-flip-vertical"></use></svg>
+                </button>
+              </div>
+              <div class="props-rotate-field" role="group" aria-label="Rotate selected element">
+                <svg class="icon-svg props-angle-icon" id="propAngleIcon" title="Drag to rotate"><use href="#icon-angle" xlink:href="#icon-angle"></use></svg>
+                <input class="prop-rotate-value" id="propRotate" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" value="-" disabled>
+                <span class="prop-unit">&deg;</span>
+                <button class="props-rotate-dd-btn" id="propRotatePreset" type="button" tabindex="-1" title="Angle presets (45°)" aria-label="Angle presets" disabled>
+                  <svg viewBox="0 0 10 6" aria-hidden="true"><path d="M1 1L5 5L9 1" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+              </div>
+            </div>
+            <div class="props-align" id="propsAlignGroup" role="group" aria-label="Align selected element to artboard">
+              <button class="props-align-btn" type="button" data-prop-align="top" title="Vertical Align Top" aria-label="Vertical Align Top" disabled>
+                <svg class="icon-svg"><use href="#icon-align-top" xlink:href="#icon-align-top"></use></svg>
+              </button>
+              <button class="props-align-btn" type="button" data-prop-align="vcenter" title="Vertical Align Center" aria-label="Vertical Align Center" disabled>
+                <svg class="icon-svg"><use href="#icon-align-vcenter" xlink:href="#icon-align-vcenter"></use></svg>
+              </button>
+              <button class="props-align-btn" type="button" data-prop-align="bottom" title="Vertical Align Bottom" aria-label="Vertical Align Bottom" disabled>
+                <svg class="icon-svg"><use href="#icon-align-bottom" xlink:href="#icon-align-bottom"></use></svg>
+              </button>
+              <span class="props-align-divider" aria-hidden="true"></span>
+              <button class="props-align-btn" type="button" data-prop-align="left" title="Horizontal Align Left" aria-label="Horizontal Align Left" disabled>
+                <svg class="icon-svg"><use href="#icon-align-left" xlink:href="#icon-align-left"></use></svg>
+              </button>
+              <button class="props-align-btn" type="button" data-prop-align="hcenter" title="Horizontal Align Center" aria-label="Horizontal Align Center" disabled>
+                <svg class="icon-svg"><use href="#icon-align-hcenter" xlink:href="#icon-align-hcenter"></use></svg>
+              </button>
+              <button class="props-align-btn" type="button" data-prop-align="right" title="Horizontal Align Right" aria-label="Horizontal Align Right" disabled>
+                <svg class="icon-svg"><use href="#icon-align-right" xlink:href="#icon-align-right"></use></svg>
+              </button>
+            </div>
+            <div class="props-pathfinder" id="propsPathfinderGroup" role="group" aria-label="Pathfinder">
+              <button class="props-pf-btn" type="button" data-pf-op="unite" title="Pathfinder: Unite" aria-label="Pathfinder Unite" disabled>
+                <svg class="icon-svg"><use href="#icon-pathfinder-unite" xlink:href="#icon-pathfinder-unite"></use></svg>
+              </button>
+              <button class="props-pf-btn" type="button" data-pf-op="minus-front" title="Pathfinder: Minus Front" aria-label="Pathfinder Minus Front" disabled>
+                <svg class="icon-svg"><use href="#icon-pathfinder-minus-front" xlink:href="#icon-pathfinder-minus-front"></use></svg>
+              </button>
+              <button class="props-pf-btn" type="button" data-pf-op="intersect" title="Pathfinder: Intersect" aria-label="Pathfinder Intersect" disabled>
+                <svg class="icon-svg"><use href="#icon-pathfinder-intersect" xlink:href="#icon-pathfinder-intersect"></use></svg>
+              </button>
+              <button class="props-pf-btn" type="button" data-pf-op="exclude" title="Pathfinder: Exclude" aria-label="Pathfinder Exclude" disabled>
+                <svg class="icon-svg"><use href="#icon-pathfinder-exclude" xlink:href="#icon-pathfinder-exclude"></use></svg>
+              </button>
+            </div>
+            <div class="props-stroke-opts" id="propsStrokeOptsGroup" role="group" aria-label="Stroke options">
+              <div class="props-stroke-row" role="group" aria-label="Align stroke">
+                <span class="props-stroke-label">Align</span>
+                <button class="props-stroke-btn" type="button" data-stroke-align="center" title="Align Stroke: Center" aria-label="Align Stroke to Center" aria-pressed="false" disabled>
+                  <svg class="icon-svg"><use href="#icon-stroke-align-center" xlink:href="#icon-stroke-align-center"></use></svg>
+                </button>
+                <button class="props-stroke-btn" type="button" data-stroke-align="inner" title="Align Stroke: Inside" aria-label="Align Stroke to Inside" aria-pressed="false" disabled>
+                  <svg class="icon-svg"><use href="#icon-stroke-align-inner" xlink:href="#icon-stroke-align-inner"></use></svg>
+                </button>
+                <button class="props-stroke-btn" type="button" data-stroke-align="outer" title="Align Stroke: Outside" aria-label="Align Stroke to Outside" aria-pressed="false" disabled>
+                  <svg class="icon-svg"><use href="#icon-stroke-align-outer" xlink:href="#icon-stroke-align-outer"></use></svg>
+                </button>
+              </div>
+              <div class="props-stroke-row" role="group" aria-label="Stroke cap">
+                <span class="props-stroke-label">Cap</span>
+                <button class="props-stroke-btn" type="button" data-stroke-cap="butt" title="Cap: Butt" aria-label="Butt Cap" aria-pressed="false" disabled>
+                  <svg class="icon-svg"><use href="#icon-stroke-cap-butt" xlink:href="#icon-stroke-cap-butt"></use></svg>
+                </button>
+                <button class="props-stroke-btn" type="button" data-stroke-cap="round" title="Cap: Round" aria-label="Round Cap" aria-pressed="false" disabled>
+                  <svg class="icon-svg"><use href="#icon-stroke-cap-round" xlink:href="#icon-stroke-cap-round"></use></svg>
+                </button>
+                <button class="props-stroke-btn" type="button" data-stroke-cap="square" title="Cap: Projecting" aria-label="Projecting Cap" aria-pressed="false" disabled>
+                  <svg class="icon-svg"><use href="#icon-stroke-cap-projecting" xlink:href="#icon-stroke-cap-projecting"></use></svg>
+                </button>
+              </div>
+              <div class="props-stroke-row" role="group" aria-label="Stroke corner">
+                <span class="props-stroke-label">Corner</span>
+                <button class="props-stroke-btn" type="button" data-stroke-join="miter" title="Corner: Miter" aria-label="Miter Corner" aria-pressed="false" disabled>
+                  <svg class="icon-svg"><use href="#icon-stroke-join-miter" xlink:href="#icon-stroke-join-miter"></use></svg>
+                </button>
+                <button class="props-stroke-btn" type="button" data-stroke-join="round" title="Corner: Round" aria-label="Round Corner" aria-pressed="false" disabled>
+                  <svg class="icon-svg"><use href="#icon-stroke-join-round" xlink:href="#icon-stroke-join-round"></use></svg>
+                </button>
+                <button class="props-stroke-btn" type="button" data-stroke-join="bevel" title="Corner: Bevel" aria-label="Bevel Corner" aria-pressed="false" disabled>
+                  <svg class="icon-svg"><use href="#icon-stroke-join-bevel" xlink:href="#icon-stroke-join-bevel"></use></svg>
+                </button>
+              </div>
+            </div>
+            <div class="props-refpoint" id="propsRefPoint" role="group" aria-label="Reference point" title="Reference point">
+              <button class="props-rp-dot" type="button" data-rp="tl" aria-label="Reference point top-left"></button>
+              <button class="props-rp-dot" type="button" data-rp="tc" aria-label="Reference point top-center"></button>
+              <button class="props-rp-dot" type="button" data-rp="tr" aria-label="Reference point top-right"></button>
+              <button class="props-rp-dot" type="button" data-rp="ml" aria-label="Reference point middle-left"></button>
+              <button class="props-rp-dot active" type="button" data-rp="mc" aria-label="Reference point middle-center"></button>
+              <button class="props-rp-dot" type="button" data-rp="mr" aria-label="Reference point middle-right"></button>
+              <button class="props-rp-dot" type="button" data-rp="bl" aria-label="Reference point bottom-left"></button>
+              <button class="props-rp-dot" type="button" data-rp="bc" aria-label="Reference point bottom-center"></button>
+              <button class="props-rp-dot" type="button" data-rp="br" aria-label="Reference point bottom-right"></button>
+            </div>
+          </div>
+            </div>
+            <div class="custom-scroll-track"><div class="custom-scroll-thumb"></div></div>
+          </div>
+        </div>
+
+        <div class="preview-box" id="previewArea">
+          <div class="ruler-corner" id="rulerCorner" aria-hidden="true" hidden></div>
+          <canvas class="canvas-ruler canvas-ruler-h" id="rulerH" aria-hidden="true" hidden></canvas>
+          <canvas class="canvas-ruler canvas-ruler-v" id="rulerV" aria-hidden="true" hidden></canvas>
+          <canvas class="guide-overlay" id="guideOverlay" aria-hidden="true" hidden></canvas>
+          <div class="artboard-overlay" id="artboardOverlay" hidden></div>
+          <svg class="canvas-overlay" id="selectionOverlay" preserveAspectRatio="none" aria-hidden="true" focusable="false" hidden></svg>
+          <svg class="canvas-overlay" id="directSelectionOverlay" preserveAspectRatio="none" aria-hidden="true" focusable="false" hidden></svg>
+          <svg class="canvas-overlay" id="shapeToolOverlay" preserveAspectRatio="none" aria-hidden="true" focusable="false" hidden></svg>
+          <svg class="canvas-overlay" id="penToolOverlay" preserveAspectRatio="none" aria-hidden="true" focusable="false" hidden></svg>
+          <svg class="canvas-overlay" id="scissorsToolOverlay" preserveAspectRatio="none" aria-hidden="true" focusable="false" hidden></svg>
+          <svg class="canvas-overlay snap-overlay" id="snapOverlay" preserveAspectRatio="none" aria-hidden="true" focusable="false" hidden></svg>
+          <div class="canvas-statusbar" id="canvasStatusBar" hidden>
+            <div class="cs-cluster">
+              <div class="cs-artboard-dims" id="csArtboardDims" aria-live="off">0 x 0 px</div>
+              <span class="cs-divider"></span>
+              <button class="cs-btn" onclick="zoomStep(-1)" title="Zoom out" aria-label="Zoom out">
+                <svg class="icon-svg"><use href="#icon-minus" xlink:href="#icon-minus"></use></svg>
+              </button>
+              <button class="cs-zoom" id="csZoomValue" onclick="beginZoomEdit()" title="Set zoom">100%</button>
+              <button class="cs-btn" onclick="zoomStep(1)" title="Zoom in" aria-label="Zoom in">
+                <svg class="icon-svg"><use href="#icon-plus" xlink:href="#icon-plus"></use></svg>
+              </button>
+              <span class="cs-divider"></span>
+              <button class="cs-btn" onclick="fitToCanvas(true)" title="Fit to canvas" aria-label="Fit to canvas">
+                <svg class="icon-svg"><use href="#icon-fit-screen" xlink:href="#icon-fit-screen"></use></svg>
+              </button>
+            </div>
+            <div class="cs-snap-label" id="csSnapLabel" aria-live="off" hidden></div>
+          </div>
+        </div>
+        
+        <div class="right-dock">
+
+        <div class="side-panel panel-appearance" id="appearancePanel">
+          <div class="panel-header-flex">
+            <h4 class="panel-title" style="border:none; margin:0; padding:0;">Appearance</h4>
+          </div>
+          <div class="ap-rows" id="appearanceRows">
+            <div class="ap-row" id="apFillRow">
+              <span class="ap-label">Fill</span>
+              <div class="picker-wrap" id="apFillSwatch" title="Fill color"></div>
+              <button class="ap-none-btn" id="apFillNone" type="button" title="None" aria-label="Set fill to none" aria-pressed="false"></button>
+              <div class="cp-input-group hex-target ap-hex" id="apFillHexGroup"><span class="cp-unit">#</span><input class="cp-hex-input" id="apFillHex" type="text" maxlength="6" spellcheck="false" autocomplete="off" aria-label="Fill hex color"></div>
+              <div class="preset-group ap-presets" id="apFillPresets"></div>
+            </div>
+            <div class="ap-row" id="apStrokeRow">
+              <span class="ap-label">Stroke</span>
+              <div class="picker-wrap picker-wrap-stroke" id="apStrokeSwatch" title="Stroke color"></div>
+              <button class="ap-none-btn" id="apStrokeNone" type="button" title="None" aria-label="Set stroke to none" aria-pressed="false"></button>
+              <div class="cp-input-group hex-target ap-hex" id="apStrokeHexGroup"><span class="cp-unit">#</span><input class="cp-hex-input" id="apStrokeHex" type="text" maxlength="6" spellcheck="false" autocomplete="off" aria-label="Stroke hex color"></div>
+              <div class="preset-group ap-presets" id="apStrokePresets"></div>
+            </div>
+            <div class="ap-row ap-weight-row" id="apWeightRow">
+              <span class="ap-label">Weight</span>
+              <div class="ap-weight-mount" id="apWeightMount"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="side-panel panel-layers">
+
+          <div class="panel-header-flex">
+            <h4 class="panel-title" style="border:none; margin:0; padding:0;">Layers</h4>
+          </div>
+
+          <div class="layers-wrap" id="layersWrap">
+            <div class="layers-list" id="layersList">
+               <div style="font-size: 11px; color: var(--text-secondary); text-align: center; margin-top: 30px;">Import SVG to view layers</div>
+            </div>
+            <div class="custom-scroll-track">
+              <div class="custom-scroll-thumb"></div>
+            </div>
+          </div>
+
+          <div class="layers-toolbar" id="layersToolbar">
+            <button id="btnImportLayer" class="layer-import-btn" onclick="openLayerImportPicker()" title="Import Layer" aria-label="Import Layer" disabled>
+              <svg class="icon-svg"><use href="#icon-folder" xlink:href="#icon-folder"></use></svg>
+            </button>
+            <button id="btnPasteLayer" class="layer-paste-btn" onclick="pasteLayerFromClipboard()" title="Paste from Clipboard" aria-label="Paste from Clipboard" disabled>
+              <svg class="icon-svg"><use href="#icon-paste" xlink:href="#icon-paste"></use></svg>
+            </button>
+            <input type="file" id="layerFileInput" accept=".svg,.svgz,.png,.jpg,.jpeg,.webp,.bmp,image/svg+xml,image/png,image/jpeg,image/webp,image/bmp" multiple hidden>
+            <button id="btnDuplicateLayer" class="layer-duplicate-btn" onclick="duplicateSelectedLayer()" title="Duplicate selected layer" aria-label="Duplicate selected layer" disabled>
+              <svg class="icon-svg"><use href="#icon-layers-duplicate" xlink:href="#icon-layers-duplicate"></use></svg>
+            </button>
+            <button id="btnDeleteLayer" class="layer-delete-btn" onclick="deleteSelectedLayer()" title="Delete selected layer" aria-label="Delete selected layer" disabled>
+              <svg class="icon-svg"><use href="#icon-trash" xlink:href="#icon-trash"></use></svg>
+            </button>
+          </div>
+
+        </div>
+
+        </div>
+      </div>
+    </div>
+
+    <div class="panel-resizer" id="wsResizer" ondblclick="resetWorkspace()" title="Drag to resize panels (double-click to reset)">
+      <span class="ws-grip"></span>
+    </div>
+
+    <div class="io-grid">
+      <div class="panel panel-import">
+        <h3 class="panel-header">Import</h3>
+        <div class="controls">
+          <label class="opt-btn">
+            <svg class="icon-svg"><use href="#icon-folder" xlink:href="#icon-folder"></use></svg> Open .svg File
+            <input type="file" id="fileInput" accept=".svg,.svgz,.png,.jpg,.jpeg,.webp,.bmp,image/svg+xml,image/png,image/jpeg,image/webp,image/bmp">
+          </label>
+          <button class="opt-btn" onclick="focusAndSelectSVG(this)">
+            <svg class="icon-svg"><use href="#icon-paste" xlink:href="#icon-paste"></use></svg> Paste Code
+          </button>
+          <input type="text" id="importMiniInput" class="import-mini-input" placeholder="Paste raw SVG code here..." spellcheck="false" autocomplete="off">
+          <button class="opt-btn import-clear-btn" onclick="clearSVG(this)">
+            <svg class="icon-svg"><use href="#icon-clear" xlink:href="#icon-clear"></use></svg> Clear
+          </button>
+        </div>
+        <div class="textarea-wrap" id="importWrap">
+          <textarea id="inputStr" placeholder="Paste raw SVG code here..."></textarea>
+          <div class="custom-scroll-track">
+            <div class="custom-scroll-thumb"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel panel-export">
+        <div class="panel-header-row">
+          <h3 class="panel-header">Export</h3>
+          <div class="export-format-toggle">
+            <label class="radio-label"><input type="radio" name="exportFormat" value="svg" checked onchange="toggleExportFormat()"> <span class="radio-custom"></span> SVG</label>
+            <label class="radio-label"><input type="radio" name="exportFormat" value="png" onchange="toggleExportFormat()"> <span class="radio-custom"></span> PNG</label>
+          </div>
+        </div>
+        <div class="controls" id="exportControlsWrapper">
+          <button id="btnCopyExport" class="opt-btn" onclick="copyOutput(this)">
+            <svg class="icon-svg"><use href="#icon-copy" xlink:href="#icon-copy"></use></svg> <span>Copy to Clipboard</span> <svg class="icon-svg copy-check-icon"><use href="#icon-check" xlink:href="#icon-check"></use></svg>
+          </button>
+          <button id="btnSaveExport" class="opt-btn" onclick="executeExport()">
+            <svg class="icon-svg"><use href="#icon-share" xlink:href="#icon-share"></use></svg> <span>Export .svg</span>
+          </button>
+          <label id="svgUseCurrentColorWrap" class="cb-label export-current-color-toggle">
+            <input type="checkbox" id="svgUseCurrentColor" onchange="toggleSvgUseCurrentColor(this.checked)"> <span class="cb-custom"></span> Use currentColor
+          </label>
+          <label id="svgMinifyWrap" class="cb-label export-current-color-toggle">
+            <input type="checkbox" id="svgMinify" onchange="toggleSvgMinify(this.checked)"> <span class="cb-custom"></span> Minify
+          </label>
+          <label id="svgResponsiveWrap" class="cb-label export-current-color-toggle">
+            <input type="checkbox" id="svgResponsive" onchange="toggleSvgResponsive(this.checked)"> <span class="cb-custom"></span> Responsive
+          </label>
+          <label id="svgDecimalsWrap" class="export-decimals-toggle" title="Decimal places of precision for exported coordinates">
+            Decimals
+            <input type="number" id="svgDecimals" min="0" max="6" step="1" value="3" onchange="setSvgExportPrecision(this.value)">
+          </label>
+        </div>
+        
+        <div class="textarea-wrap" id="exportWrap">
+          <textarea id="outputStr" readonly placeholder="Final SVG code will appear here..."></textarea>
+          <div class="custom-scroll-track">
+            <div class="custom-scroll-thumb"></div>
+          </div>
+        </div>
+
+        <div class="png-framed-wrap" id="pngExportWrap" style="display: none;">
+            <div class="png-left-col">
+                
+                <div class="dim-header-row">
+                    <span class="dim-label">SIZE</span>
+                    <label class="cb-label">
+                      <input type="checkbox" id="pngHoldRes" onchange="handlePngHoldToggle(this.checked)"> <span class="cb-custom"></span> Hold
+                    </label>
+                </div>
+                
+                <div class="dim-row">
+                    <span class="sub-label">Width:</span>
+                    <div class="dim-group">
+                        <input type="number" id="pngW" class="dim-input" oninput="handlePngDimChange('w')">
+                        <span class="dim-unit">px</span>
+                    </div>
+                </div>
+                <div class="dim-row">
+                    <span class="sub-label">Height:</span>
+                    <div class="dim-group">
+                        <input type="number" id="pngH" class="dim-input" oninput="handlePngDimChange('h')">
+                        <span class="dim-unit">px</span>
+                    </div>
+                </div>
+                
+                <div class="png-divider"></div>
+                
+                <div class="bg-header-row">
+                    <span class="dim-label">BACKGROUND</span>
+                    <label class="cb-label">
+                      <input type="checkbox" id="pngClipBounds" onchange="handlePngClipToggle(this.checked)"> <span class="cb-custom"></span> Clip to Ink Bounds
+                    </label>
+                </div>
+                
+                <div class="bg-preset-row">
+                    <button class="bg-preset-btn active bg-transparent-btn checkerboard-bg" data-bg="transparent" onclick="setPngBg('transparent')" title="Transparent"></button>
+                    <button class="bg-preset-btn" data-bg="#000000" onclick="setPngBg('#000000')" title="Black" style="background: #000000;"></button>
+                    <button class="bg-preset-btn" data-bg="#ffffff" onclick="setPngBg('#ffffff')" title="White" style="background: #ffffff;"></button>
+                    
+                    <button class="bg-preset-btn" id="btnCustomPngBg" onclick="openPngBgPicker()" title="Custom Color/Gradient">
+                        <div class="png-picker-center" id="customPngBgCenter"></div>
+                    </button>
+                </div>
+                
+            </div>
+            
+            <div class="png-right-col">
+                <div class="png-preview-box" id="pngPreviewBox">
+                    <img id="pngPreviewImg" class="checkerboard-bg">
+                </div>
+            </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<div id="historyPanel" class="history-panel" hidden>
+  <div id="historyPanelBar" class="history-panel__bar">
+    <span class="history-panel__title">History</span>
+    <div class="history-panel__nav">
+      <button id="historyUndo" class="history-panel__nav-btn" type="button" title="Undo (Ctrl+Z)" aria-label="Undo" disabled><svg class="icon-svg"><use href="#icon-undo" xlink:href="#icon-undo"></use></svg></button>
+      <button id="historyRedo" class="history-panel__nav-btn" type="button" title="Redo (Ctrl+Shift+Z)" aria-label="Redo" disabled><svg class="icon-svg"><use href="#icon-redo" xlink:href="#icon-redo"></use></svg></button>
+      <button id="historyClose" class="history-panel__nav-btn history-panel__close" type="button" title="Close" aria-label="Close History panel">&times;</button>
+    </div>
+  </div>
+  <div id="historyList" class="history-panel__list" role="list"></div>
+  <div id="historyPanelResize" class="history-panel__resize" title="Drag to resize height" aria-hidden="true"></div>
+</div>
+
+<script src="js/ICONS (linked).js"></script>
+<script src="js/custom-cursors.js"></script>
+<script src="js/version.js"></script>
+<script src="js/app-state.js"></script>
+<script src="js/dom-utils.js"></script>
+<script src="js/ui-common.js"></script>
+<script src="js/preview-renderer.js"></script>
+<script src="js/color-picker-bridge.js"></script>
+<script src="js/svg-import.js"></script>
+<script src="js/layers.js"></script>
+<script src="js/export.js"></script>
+<script src="js/hand-tool.js"></script>
+<script src="js/artboard-tool.js"></script>
+<script src="js/selection-tool.js"></script>
+<script src="js/direct-selection-tool.js"></script>
+<script src="js/shape-tools.js"></script>
+<script src="js/pen-tool.js"></script>
+<script src="js/scissors-tool.js"></script>
+<script src="js/rulers-guides.js"></script>
+<script src="js/snapping.js"></script>
+<script src="js/properties.js"></script>
+<script src="js/path-finder.js"></script>
+<script src="js/history.js"></script>
+<script src="js/history-panel.js"></script>
+<script src="js/app-init.js"></script>
+<script src="js/new-artboard.js"></script>
+<script src="js/logo-load.js"></script>
+</body>
+</html>

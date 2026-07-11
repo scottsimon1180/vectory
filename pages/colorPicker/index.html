@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PixelForge Custom Color Picker</title>
+<style>
+  :root {
+    --bg: #1a1a1e;
+    --bg-secondary: #242428;
+    --bg-hover: #35353d;
+    --surface: #2a2a30;
+    --surface-raised: #323238; 
+    --border: rgba(255,255,255,0.1);
+    --border-strong: rgba(255,255,255,0.14); 
+    --text: #f2f2f7;
+    --text-secondary: #8e8e93;
+    --text-tertiary: #636366;
+    --accent: #007aff;
+    --accent-hover: #0a84ff;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+
+  body, html {
+    margin: 0; padding: 0; font-family: var(--font); background: transparent;
+    overflow: hidden; -webkit-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none; touch-action: none;
+  }
+
+  body.is-dragging, body.is-dragging * { cursor: pointer !important; }
+  body.is-eyedropper-active .cp-modal { pointer-events: none !important; }
+  body.is-eyedropper-active #cpEyedropperBtn { pointer-events: auto !important; }
+
+  input[type="text"], input[type="number"] { -webkit-user-select: text; user-select: text; caret-color: transparent; }
+  .app-input-grey { color: var(--text-tertiary) !important; }
+  .app-input-grey::selection { background: transparent; color: var(--text-tertiary); }
+
+  button.standard, button.primary {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px; 
+    border-radius: 10px; padding: 10px 18px; font-size: 13px; font-weight: 500; 
+    cursor: default; transition: 0.15s ease-out; box-sizing: border-box;
+  }
+  button.standard { background: rgba(255, 255, 255, 0.08); color: var(--text); border: none; }
+  button.standard:hover { background: rgba(255, 255, 255, 0.12); }
+  button.primary { background: var(--accent); color: #fff; border: none; }
+  button.primary:hover { background: var(--accent-hover); }
+  button.standard:active, button.primary:active { transform: scale(0.97); opacity: 0.7; }
+
+  .cp-modal-overlay {
+    position: fixed; inset: 0; background: transparent; z-index: 9999; display: none; 
+    align-items: center; justify-content: center; pointer-events: none;
+  }
+  .cp-modal {
+    background: var(--surface); border: 1px solid var(--border-strong); border-radius: 14px;
+    width: 560px; pointer-events: auto; box-shadow: 0 24px 48px rgba(0,0,0,0.4); 
+    display: flex; flex-direction: column; overflow: hidden; animation: cpModalIn 0.2s ease-out;
+  }
+  @keyframes cpModalIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+  @keyframes cpModalOut { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(0.95); } }
+  
+  .cp-modal-header {
+    padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; 
+    justify-content: space-between; align-items: center; background: var(--bg-secondary);
+    cursor: grab; position: relative;
+  }
+  .cp-modal-header:active { cursor: grabbing; }
+  .cp-modal-title { font-size: 14px; font-weight: 600; color: var(--text); margin: 0; cursor: inherit; }
+  .cp-modal-close { cursor: default; color: var(--text-secondary); font-size: 18px; line-height: 1; padding: 0 4px; }
+  .cp-modal-close:hover { color: var(--text); }
+  
+  .cp-modal-body { display: flex; padding: 20px; gap: 24px; }
+  
+  .cp-left { display: flex; flex-direction: column; width: 224px; position: relative; } 
+  .cp-canvas-row { display: flex; gap: 12px; margin-top: 12px; }
+
+  /* Tab Bars */
+  .cp-fill-mode-bar { 
+    display: flex; background: var(--bg); border-radius: 6px; padding: 2px; 
+    border: 1px solid var(--border-strong); width: 160px; 
+  }
+  .cp-segment-bar { display: flex; background: var(--bg); border-radius: 6px; padding: 2px; border: 1px solid var(--border-strong); }
+  .cp-segment-btn {
+    flex: 1; text-align: center; padding: 4px 0; font-size: 11px; font-weight: 600; 
+    color: var(--text-secondary); cursor: default; border-radius: 4px; transition: 0.15s;
+  }
+  .cp-segment-btn.active { background: var(--surface-raised); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+
+  /* ===== Gradient Editor Panel ===== */
+  .cp-grad-panel {
+    flex: 1; min-height: 0; width: 100%; box-sizing: border-box;
+    display: flex; flex-direction: column; position: relative;
+    background: var(--bg); border: 1px solid var(--border-strong); border-radius: 12px; padding: 12px;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.28);
+  }
+
+  .cp-grad-panel-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-shrink: 0; }
+  .cp-grad-panel-title { font-size: 11px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px; }
+  .cp-grad-hdr-btns { display: flex; gap: 6px; }
+  .cp-grad-type-toggle {
+    width: 30px; height: 30px; border-radius: 8px; padding: 0; background: var(--surface-raised); border: 1px solid var(--border-strong);
+    display: flex; align-items: center; justify-content: center; color: var(--text-secondary); cursor: pointer; transition: 0.15s;
+  }
+  .cp-grad-type-toggle:hover { background: var(--bg-hover); color: var(--text); border-color: var(--text-tertiary); }
+  .cp-grad-type-toggle:active { transform: scale(0.94); }
+  .cp-grad-type-toggle svg { width: 20px; height: 20px; }
+  .cp-grad-type-toggle .cp-angle-dial { width: 20px; height: 20px; color: inherit; }
+  .cp-grad-type-toggle .cp-angle-dial svg { width: 20px; height: 20px; }
+
+  /* Live gradient preview strip */
+  .cp-grad-preview {
+    height: 26px; border-radius: 7px; flex-shrink: 0; margin-bottom: 12px; overflow: hidden; position: relative;
+    background-image: linear-gradient(45deg,#3a3a40 25%,transparent 25%), linear-gradient(-45deg,#3a3a40 25%,transparent 25%), linear-gradient(45deg,transparent 75%,#3a3a40 75%), linear-gradient(-45deg,transparent 75%,#3a3a40 75%);
+    background-size: 10px 10px; background-position: 0 0, 0 5px, 5px -5px, -5px 0; background-color: #2b2b30;
+    box-shadow: inset 0 0 0 1px rgba(0,0,0,0.35);
+  }
+  .cp-grad-preview-fill { position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 1px 0 rgba(255,255,255,0.12); }
+
+  /* Angle control row (opens angle presets) */
+  .cp-grad-angle-bar {
+    display: flex; align-items: center; gap: 9px; width: 100%; height: 40px; padding: 0 11px; margin-bottom: 14px; flex-shrink: 0; box-sizing: border-box;
+    border-radius: 9px; background: var(--surface-raised); border: 1px solid var(--border-strong);
+    color: var(--text-secondary); cursor: pointer; transition: 0.15s;
+  }
+  .cp-grad-angle-bar:hover { background: var(--bg-hover); color: var(--text); border-color: var(--text-tertiary); }
+  .cp-grad-angle-bar:active { transform: scale(0.99); }
+  .cp-angle-dial { width: 18px; height: 18px; flex-shrink: 0; transform-origin: 50% 50%; color: var(--accent); }
+  .cp-angle-dial svg { width: 18px; height: 18px; display: block; }
+  .cp-grad-angle-text { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+  .cp-grad-angle-val { margin-left: auto; font-size: 13px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+  .cp-grad-angle-caret { width: 16px; height: 16px; flex-shrink: 0; color: var(--text-tertiary); }
+
+  /* Color stops header */
+  .cp-grad-stops-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; flex-shrink: 0; }
+  .cp-grad-stops-titlewrap { display: flex; align-items: center; gap: 7px; }
+  .cp-grad-stops-title { font-size: 11px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px; }
+  .cp-grad-stops-count { min-width: 18px; height: 17px; padding: 0 5px; border-radius: 9px; background: rgba(255,255,255,0.07); color: var(--text-secondary); font-size: 10px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; }
+  .cp-grad-stops-actions { display: flex; gap: 6px; }
+  .cp-grad-btn { width: 28px; height: 28px; border-radius: 7px; padding: 0; background: var(--surface-raised); border: 1px solid var(--border-strong); display: flex; align-items: center; justify-content: center; color: var(--text-secondary); cursor: pointer; transition: 0.15s; }
+  .cp-grad-btn svg { width: 16px; height: 16px; }
+  .cp-grad-btn:hover { color: var(--text); background: var(--bg-hover); border-color: var(--text-tertiary); }
+  .cp-grad-btn:active { transform: scale(0.92); }
+  .cp-grad-btn-danger:hover { color: #ff453a; background: rgba(255,69,58,0.14); border-color: rgba(255,69,58,0.4); }
+
+  /* Stops list */
+  .cp-grad-colors-list { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; flex: 1; min-height: 0; padding-right: 4px; margin-right: -4px; position: relative; }
+  .cp-grad-colors-list::-webkit-scrollbar { width: 4px; }
+  .cp-grad-colors-list::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
+  .cp-grad-colors-list::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }
+
+  .cp-grad-row { display: flex; align-items: center; gap: 8px; padding: 6px 9px; border-radius: 9px; background: var(--surface-raised); border: 1px solid var(--border); cursor: pointer; transition: background 0.15s, border-color 0.15s, box-shadow 0.15s; position: relative; box-sizing: border-box; }
+  .cp-grad-row:hover { background: var(--bg-hover); border-color: var(--border-strong); }
+  .cp-grad-row.active { background: rgba(0,122,255,0.16); border-color: var(--accent); box-shadow: 0 0 0 1px rgba(0,122,255,0.35); }
+  .cp-grad-row.is-dragging { z-index: 100; opacity: 0.97; box-shadow: 0 10px 28px rgba(0,0,0,0.55); border-color: var(--accent); }
+  .cp-grad-row-placeholder { width: 100%; border-radius: 9px; background: rgba(0,122,255,0.08); border: 1px dashed var(--accent); box-sizing: border-box; }
+
+  .cp-grad-drag { width: 16px; height: 22px; display: flex; align-items: center; justify-content: center; color: var(--text-tertiary); cursor: grab; flex-shrink: 0; transition: color 0.15s; }
+  .cp-grad-row:hover .cp-grad-drag { color: var(--text-secondary); }
+  .cp-grad-drag:active { cursor: grabbing; }
+  .cp-grad-drag svg { width: 12px; height: 16px; pointer-events: none; fill: currentColor; }
+
+  .cp-grad-swatch-wrap {
+      width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0; pointer-events: none;
+      background-image: linear-gradient(45deg, #333 25%, transparent 25%), linear-gradient(-45deg, #333 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #333 75%), linear-gradient(-45deg, transparent 75%, #333 75%);
+      background-size: 8px 8px; background-position: 0 0, 0 4px, 4px -4px, -4px 0px; background-color: #222;
+      box-shadow: 0 0 0 1px rgba(0,0,0,0.4), inset 0 0 0 1px rgba(255,255,255,0.08); overflow: hidden;
+  }
+  .cp-grad-swatch { width: 100%; height: 100%; }
+  .cp-grad-row.active .cp-grad-swatch-wrap { box-shadow: 0 0 0 1px var(--accent), inset 0 0 0 1px rgba(255,255,255,0.12); }
+
+  .cp-grad-label { flex: 1; font-size: 11px; font-weight: 600; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; text-transform: uppercase; letter-spacing: 0.3px; min-width: 0; }
+  .cp-grad-row:hover .cp-grad-label, .cp-grad-row.active .cp-grad-label { color: var(--text); }
+
+  /* ===== Angle Presets Overlay ===== */
+  .cp-deg-overlay { position: absolute; inset: 0; background: var(--bg-secondary); z-index: 10; display: none; flex-direction: column; border-radius: 12px; box-shadow: inset 0 0 0 1px var(--border-strong); }
+  .cp-deg-sheet { display: flex; flex-direction: column; padding: 12px; height: 100%; box-sizing: border-box; overflow-y: auto; }
+  .cp-deg-title { font-size: 11px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; flex-shrink: 0; }
+  .cp-deg-main { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; flex-shrink: 0; }
+  .cp-deg-dial-wrap { width: 64px; height: 64px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle at 50% 35%, rgba(255,255,255,0.06), transparent 70%); box-shadow: inset 0 0 0 1px var(--border); cursor: default; touch-action: none; user-select: none; -webkit-user-select: none; }
+  .cp-deg-dial-wrap:hover { box-shadow: inset 0 0 0 1px var(--text-tertiary); }
+  .cp-deg-dial-wrap.is-grabbing { cursor: pointer; }
+  .cp-deg-dial { width: 52px; height: 52px; transform-origin: 50% 50%; display: flex; align-items: center; justify-content: center; will-change: transform; color: var(--accent); }
+  .cp-deg-dial svg { width: 52px; height: 52px; display: block; }
+  .cp-deg-dial-track { color: var(--border-strong); }
+  .cp-deg-input { flex: 1; min-width: 0; padding: 9px 6px; font-size: 16px; font-weight: 800; text-align: center; border-radius: 9px; border: 1px solid var(--border-strong); -webkit-appearance: none; outline: none; background: var(--surface-raised); color: var(--text); font-variant-numeric: tabular-nums; box-sizing: border-box; }
+  .cp-deg-input:focus { border-color: var(--accent); }
+  .preset-row { display: flex; justify-content: center; gap: 5px; width: 100%; flex-shrink: 0; }
+  .preset-row + .preset-row { margin-top: 5px; }
+  .preset-btn { height: 30px; padding: 0 3px; border: 1px solid var(--border-strong); border-radius: 7px; font-weight: 700; font-size: 11px; background: var(--surface-raised); color: var(--text-secondary); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; flex: 1; transition: 0.15s; }
+  .preset-btn:hover { background: var(--bg-hover); color: var(--text); border-color: var(--text-tertiary); }
+  .preset-btn:active { transform: scale(0.95); }
+  .preset-btn svg { width: 13px; height: 13px; fill: currentColor; flex-shrink: 0; }
+  .cp-deg-actions { margin-top: auto; display: flex; gap: 8px; flex-shrink: 0; }
+  .cp-deg-cancel { flex: 1; height: 34px; border-radius: 9px; background: var(--surface-raised); color: var(--text-secondary); border: 1px solid var(--border-strong); font-weight: 600; font-size: 13px; cursor: pointer; transition: 0.15s; }
+  .cp-deg-cancel:hover { background: var(--bg-hover); color: var(--text); border-color: var(--text-tertiary); }
+  .cp-deg-cancel:active { transform: scale(0.98); opacity: 0.85; }
+  .cp-deg-done { flex: 1; height: 34px; border-radius: 9px; background: var(--accent); color: #fff; border: none; font-weight: 600; font-size: 13px; cursor: pointer; transition: 0.15s; }
+  .cp-deg-done:hover { background: var(--accent-hover); }
+  .cp-deg-done:active { transform: scale(0.98); opacity: 0.85; }
+
+  /* Core Canvas Replacements */
+  .cp-track-wrap { position: relative; width: 12px; height: 200px; border-radius: 6px; cursor: default; flex-shrink: 0; }
+  .cp-track-bg { width: 100%; height: 100%; position: absolute; inset: 0; pointer-events: none; border-radius: inherit; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.2); }
+  .cp-track-bg.mode-spectrum { background: linear-gradient(to bottom, #f00 0%, #ff0 16.66%, #0f0 33.33%, #0ff 50%, #00f 66.66%, #f0f 83.33%, #f00 100%); }
+  .cp-track-cursor { position: absolute; left: 50%; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.4), 0 0 0 1px rgba(0,0,0,0.08); transform: translate(-50%, -50%); pointer-events: none; }
+
+  .cp-main-canvas-wrap { position: relative; width: 200px; height: 200px; border-radius: 4px; overflow: hidden; cursor: default; flex-shrink: 0; transition: border-radius 0.2s; }
+  .cp-main-bg { width: 100%; height: 100%; position: absolute; inset: 0; pointer-events: none; border-radius: inherit; }
+  .cp-main-bg.mode-wheel { background: radial-gradient(circle closest-side, #ffffff 0%, transparent 100%), conic-gradient(red 0deg, yellow 60deg, lime 120deg, cyan 180deg, blue 240deg, magenta 300deg, red 360deg); }
+  .cp-main-darken { position: absolute; inset: 0; background: #000; pointer-events: none; border-radius: inherit; }
+  
+  .cp-cursor { position: absolute; width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 2px rgba(0,0,0,0.5), inset 0 0 2px rgba(0,0,0,0.5); transform: translate(-50%, -50%); pointer-events: none; }
+
+  .cp-presets-grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 3px; margin-top: auto; margin-bottom: auto; width: 100%; transform: translateY(10px); }
+  .cp-preset-swatch { width: 100%; aspect-ratio: 1; border-radius: 3px; cursor: default; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.2); transition: 0.1s; }
+  .cp-preset-swatch:hover { box-shadow: inset 0 0 0 1px rgba(0,0,0,0.4), 0 0 0 1px var(--text-secondary); transform: scale(1.15); z-index: 2; position: relative; }
+  /* Solid mode centers the palette in the left column (auto top/bottom margins). The translateY(10px)
+     offsets half the modal-body's 20px bottom padding so the grid reads as centered between the wheel
+     bottom and the footer top (equal gap above/below) rather than centered within the column alone. */
+  /* Gradient mode condenses to the first (brights) + last (grayscale) rows; a fixed top gap keeps
+     the gradient editor above free to flex-fill the column (an auto margin would steal its grow space).
+     The grid is bottom-anchored here (flex-grow eats the slack), so it overrides the base translateY to
+     7px: solid sits 13px above the footer (10px translate + ~3px centering slack) while bottom-anchored
+     gradient is 20px above before transform, so 7px down lands its grayscale row on solid's -- match-cut. */
+  .cp-presets-grid.cp-condensed { margin-top: 14px; margin-bottom: auto; transform: translateY(7px); }
+  .cp-presets-grid.cp-condensed .cp-preset-extra { display: none; }
+
+  .cp-right { flex: 1; display: flex; flex-direction: column; }
+  
+  .cp-sliders-wrap { display: flex; flex-direction: column; gap: 14px; }
+  .cp-slider-row { display: flex; align-items: center; gap: 8px; }
+  .cp-slider-lbl { width: 14px; font-size: 11px; font-weight: 600; color: var(--text-secondary); cursor: default; }
+  
+  .cp-divider { border: none; border-top: 1px solid var(--border-strong); margin: 14px 0 10px 0; width: 100%; }
+  .cp-section-label { font-size: 11px; font-weight: 700; color: var(--text-secondary); margin-bottom: 10px; letter-spacing: 0.5px; cursor: default; }
+
+  .cp-slider-inp { flex: 1; -webkit-appearance: none; appearance: none; height: 10px; border-radius: 5px; outline: none; margin: 0; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.2); cursor: default; background: var(--slider-bg, #000); }
+  .cp-slider-inp::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.4), 0 0 0 1px rgba(0,0,0,0.08); cursor: default; }
+  .cp-alpha-track {
+    background-image: var(--alpha-grad, none),
+      linear-gradient(45deg,#777 25%,transparent 25%), linear-gradient(-45deg,#777 25%,transparent 25%),
+      linear-gradient(45deg,transparent 75%,#777 75%), linear-gradient(-45deg,transparent 75%,#777 75%);
+    background-size: auto, 8px 8px, 8px 8px, 8px 8px, 8px 8px;
+    background-position: 0 0, 0 0, 0 4px, 4px -4px, -4px 0;
+  }
+
+  .cp-num-inp { width: 28px; background: var(--surface-raised); border: 1px solid var(--border-strong); border-radius: 4px; color: var(--text); font-size: 11px; text-align: center; padding: 4px 2px; font-family: monospace; outline: none; flex-shrink: 0; cursor: default; }
+  .cp-num-inp:focus { cursor: text; border-color: var(--accent); }
+  .cp-num-inp::-webkit-outer-spin-button, .cp-num-inp::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+  .cp-modal-footer { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: var(--bg-secondary); }
+  .cp-footer-left { display: flex; gap: 8px; align-items: center; }
+  .cp-swatch-single { width: 44px; height: 44px; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--border-strong); background: #000; flex-shrink: 0; }
+  
+  .cp-hex-modal-wrap { width: 68px; height: 32px; display: flex; align-items: center; background: var(--surface-raised); border: 1px solid var(--border-strong); border-radius: 4px; padding: 4px 6px; gap: 2px; cursor: text; transition: 0.15s; box-sizing: border-box; }
+  .cp-hex-modal-wrap:focus-within { border-color: var(--accent); }
+  .cp-hex-hash { color: var(--text-tertiary); font-weight: 600; font-size: 12px; cursor: text; }
+  .cp-hex-modal-inp { background: transparent; border: none; color: var(--text); font-family: monospace; font-size: 12px; width: 100%; outline: none; text-transform: uppercase; padding: 0; }
+
+  body.is-ipad-os .cp-hex-modal-wrap { width: 72px; }
+  
+  .cp-eyedropper-btn { width: 32px; height: 32px; background: var(--surface-raised); border: 1px solid var(--border-strong); border-radius: 4px; display: flex; align-items: center; justify-content: center; color: var(--text-secondary); cursor: default; transition: 0.15s; flex-shrink: 0; box-sizing: border-box; }
+  .cp-eyedropper-btn:hover { background: var(--bg-hover); color: var(--text); border-color: var(--text-secondary); }
+  .cp-eyedropper-btn:active { transform: scale(0.95); }
+  .cp-eyedropper-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(0, 122, 255, 0.1); }
+
+  .cp-footer-center { display: flex; justify-content: center; align-items: center; flex: 1; margin: 0 16px; gap: 12px; }
+  .cp-add-btn { width: 20px; height: 20px; background: var(--surface-raised); border: 1px solid var(--border-strong); border-radius: 3px; display: flex; align-items: center; justify-content: center; color: var(--text-secondary); cursor: default; transition: 0.15s; flex-shrink: 0; }
+  .cp-add-btn:hover { background: var(--bg-hover); color: var(--text); border-color: var(--text-secondary); }
+  .cp-add-btn:active { transform: scale(0.95); }
+
+  .cp-bank-grid { display: grid; grid-template-columns: repeat(7, 20px); grid-template-rows: repeat(2, 20px); gap: 4px; }
+  .cp-bank-swatch { width: 100%; height: 100%; border-radius: 3px; transition: 0.1s; -webkit-touch-callout: none; }
+  .cp-bank-swatch.empty { background: rgba(0,0,0,0.25); box-shadow: inset 0 1px 3px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(255,255,255,0.03); cursor: default; }
+  .cp-bank-swatch.filled { box-shadow: inset 0 0 0 1px rgba(0,0,0,0.2); cursor: default; }
+  .cp-bank-swatch.filled:hover { box-shadow: inset 0 0 0 1px rgba(0,0,0,0.4), 0 0 0 1px var(--text-secondary); transform: scale(1.15); z-index: 2; position: relative; }
+  .cp-footer-right { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+
+  /* Context Menu */
+  .cp-context-menu { position: fixed; z-index: 10000; display: none; background: var(--surface-raised); border: 1px solid var(--border-strong); border-radius: 8px; box-shadow: 0 8px 16px rgba(0,0,0,0.5); padding: 4px; opacity: 0; transform: translateY(6px) scale(0.95); transition: opacity 0.15s cubic-bezier(0.16, 1, 0.3, 1), transform 0.15s cubic-bezier(0.16, 1, 0.3, 1); }
+  .cp-context-menu.active { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
+  .cp-context-action { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 6px; color: var(--text-secondary); cursor: default; transition: 0.15s ease-out; }
+  .cp-context-action:hover { background: rgba(255, 59, 48, 0.15); color: #ff3b30; }
+  .cp-context-action:active { transform: scale(0.92); }
+</style>
+</head>
+<body>
+
+  <div class="cp-context-menu" id="cpContextMenu">
+      <div class="cp-context-action" onclick="executeDelete()" title="Delete Item">
+          <svg width="20" height="20" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.24,19.29c-0.3,0-0.5-0.19-0.51-0.48L8.45,8.71c-0.01-0.29,0.19-0.48,0.5-0.48c0.28,0,0.49,0.18,0.5,0.47l0.3,10.11C9.76,19.09,9.55,19.29,9.24,19.29zM12,19.29c-0.3,0-0.52-0.2-0.52-0.48V8.71c0-0.29,0.22-0.48,0.52-0.48c0.3,0,0.52,0.19,0.52,0.48v10.1C12.52,19.09,12.3,19.29,12,19.29zM14.76,19.29c-0.31,0-0.5-0.2-0.5-0.48l0.29-10.11c0.01-0.29,0.22-0.48,0.5-0.48c0.31,0,0.5,0.19,0.5,0.48l-0.29,10.1C15.25,19.11,15.06,19.29,14.76,19.29zM8.1,6.01h1.23V4.08c0-0.56,0.39-0.92,0.99-0.92h3.35c0.6,0,0.99,0.36,0.99,0.92v1.93h1.23v-2c0-1.25-0.81-2.01-2.14-2.01h-3.49C8.92,2,8.1,2.76,8.1,4.01V6.01zM3.9,6.61h16.2c0.32,0,0.58-0.27,0.58-0.58c0-0.32-0.26-0.59-0.58-0.59H3.9c-0.31,0-0.58,0.27-0.58,0.59C3.32,6.36,3.59,6.61,3.9,6.61zM7.89,22h8.23c1.2,0,2.05-0.82,2.11-2.02L18.9,6.43H5.11l0.67,13.55C5.83,21.19,6.67,22,7.89,22z" fill="currentColor" stroke="none"/></svg>
+      </div>
+  </div>
+
+  <div class="cp-modal-overlay" id="cpModalOverlay">
+    <div class="cp-modal" id="cpModalContainer">
+      
+      <div class="cp-modal-header">
+        <div style="flex: 1; display: flex; align-items: center; pointer-events: none;">
+          <h4 class="cp-modal-title">Color Picker</h4>
+        </div>
+        <div class="cp-fill-mode-bar" onpointerdown="event.stopPropagation()">
+          <div class="cp-segment-btn active" id="btnModeSolid" onclick="setFillMode('solid')">Solid</div>
+          <div class="cp-segment-btn" id="btnModeGradient" onclick="setFillMode('gradient')">Gradient</div>
+        </div>
+        <div style="flex: 1; display: flex; justify-content: flex-end; pointer-events: auto;">
+          <div class="cp-modal-close" onclick="closeCustomPicker()">&times;</div>
+        </div>
+      </div>
+      
+      <div class="cp-modal-body">
+        
+        <div class="cp-left" id="cpLeftPanel">
+          <div class="cp-segment-bar" id="solidLeftTabs">
+            <div class="cp-segment-btn" id="btnModeSpectrum" onclick="setPickerMode('spectrum')">Spectrum</div>
+            <div class="cp-segment-btn active" id="btnModeWheel" onclick="setPickerMode('wheel')">Wheel</div>
+          </div>
+          
+          <div id="gradientEditorArea" class="cp-grad-panel" style="display: none;">
+            <div class="cp-grad-panel-hdr">
+              <span class="cp-grad-panel-title">Gradient</span>
+              <div class="cp-grad-hdr-btns">
+                <button class="cp-grad-type-toggle" id="tbGradAngle" title="Gradient Angle">
+                  <span class="cp-angle-dial" id="gradAngleRotator">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle class="cp-deg-dial-track" cx="50" cy="50" r="40" fill="transparent" stroke="currentColor" stroke-width="8"/><line x1="50" y1="50" x2="50" y2="10" stroke="currentColor" stroke-width="8" stroke-linecap="round"/><circle cx="50" cy="50" r="8" fill="currentColor"/></svg>
+                  </span>
+                  <span id="gradAngleDisplay" style="display:none;">0&deg;</span>
+                </button>
+                <button class="cp-grad-type-toggle" id="tbGradType" title="Toggle Linear / Radial">
+                  <!-- Injected via JS -->
+                </button>
+              </div>
+            </div>
+
+            <div class="cp-grad-preview">
+              <div class="cp-grad-preview-fill" id="gradPreviewBar"></div>
+            </div>
+
+            <div class="cp-grad-stops-hdr">
+              <div class="cp-grad-stops-titlewrap">
+                <span class="cp-grad-stops-title">Color Stops</span>
+                <span class="cp-grad-stops-count" id="gradStopCount">0</span>
+              </div>
+              <div class="cp-grad-stops-actions">
+                <button class="cp-grad-btn cp-grad-btn-danger" id="btnGradTrash" aria-label="Delete Selected Color" title="Delete Selected Color">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
+                </button>
+                <button class="cp-grad-btn" id="btnGradPlus" aria-label="Add Color" title="Add Color">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="cp-grad-colors-list" id="gradColorsList"></div>
+
+            <!-- Inline Angle Presets Overlay -->
+            <div class="cp-deg-overlay" id="cpDegOverlay">
+              <div class="cp-deg-sheet">
+                <div class="cp-deg-title">Gradient Angle</div>
+                <div class="cp-deg-main">
+                  <div class="cp-deg-dial-wrap" id="degDialWrap">
+                    <div id="degBigRotator" class="cp-deg-dial">
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+                        <circle class="cp-deg-dial-track" cx="50" cy="50" r="40" fill="transparent" stroke="currentColor" stroke-width="6"/>
+                        <line x1="50" y1="50" x2="50" y2="10" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+                        <circle cx="50" cy="50" r="6" fill="currentColor"/>
+                      </svg>
+                    </div>
+                  </div>
+                  <input id="degAngleInput" class="cp-deg-input" type="text" inputmode="numeric" value="0&deg;" aria-label="Angle in degrees">
+                </div>
+
+                <div class="preset-row">
+                  <button class="preset-btn" type="button" data-deg="0">0&deg;</button>
+                  <button class="preset-btn" type="button" data-deg="45">45&deg;</button>
+                  <button class="preset-btn" type="button" data-deg="90">90&deg;</button>
+                  <button class="preset-btn" type="button" data-deg="135">135&deg;</button>
+                  <button class="preset-btn" type="button" data-deg="180">180&deg;</button>
+                </div>
+                <div class="preset-row">
+                  <button class="preset-btn" type="button" data-deg="225">225&deg;</button>
+                  <button class="preset-btn" type="button" data-deg="270">270&deg;</button>
+                  <button class="preset-btn" type="button" data-deg="315">315&deg;</button>
+                  <button class="preset-btn" type="button" data-deg="360">360&deg;</button>
+                </div>
+                <div class="preset-row">
+                  <button class="preset-btn" type="button" id="btnHInvert"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2048 2048"><path d="M810.54 953.03L161.46 357.3C99.69 300.61 0 344.43 0 428.27v1191.47c0 83.84 99.69 127.66 161.46 70.96l649.08-595.73C852.13 1056.79 852.13 991.2 810.54 953.03z M1237.46 1094.97l649.08 595.73c61.77 56.69 161.46 12.88 161.46-70.96v-1191.47c0-83.84-99.69-127.66-161.46-70.96l-649.08 595.73C1195.87 991.21 1195.87 1056.79 1237.46 1094.97z"/><path d="M1024 95.7v150m0 191.3v150m0 191.3v150m0 191.4v150m0 191.3v150m0 191.4v150" fill="none" stroke="currentColor" stroke-width="83.4" stroke-linecap="round"/></svg>Flip H</button>
+                  <button class="preset-btn" type="button" id="btnVInvert"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2048 2048"><path d="M953.03 1237.46L357.3 1886.54c-56.69 61.77-12.88 161.46 70.96 161.46h1191.47c83.84 0 127.66-99.69 70.96-161.46l-595.73-649.08C1056.79 1195.87 991.2 1195.87 953.03 1237.46z M1094.97 810.54l595.73-649.08C1747.39 99.69 1703.57 0 1619.73 0H428.27c-83.84 0-127.66 99.69-70.96 161.46l595.73 649.08C991.21 852.13 1056.79 852.13 1094.97 810.54z"/><path d="M95.7 1024h150m191.3 0h150m191.3 0h150m191.4 0h150m191.3 0h150m191.4 0h150" fill="none" stroke="currentColor" stroke-width="83.4" stroke-linecap="round"/></svg>Flip V</button>
+                </div>
+                <div class="cp-deg-actions">
+                  <button class="cp-deg-cancel" id="degCancelBtn" type="button">Cancel</button>
+                  <button class="cp-deg-done" id="degCloseBtn" type="button">Done</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="cp-canvas-row" id="cpCanvasRow">
+            <div class="cp-track-wrap" id="cpTrackWrap">
+              <div class="cp-track-bg mode-wheel" id="cpTrackArea"></div>
+              <div class="cp-track-cursor" id="cpTrackCursor"></div>
+            </div>
+            
+            <div class="cp-main-canvas-wrap" id="cpMainWrap">
+              <div class="cp-main-bg mode-wheel" id="cpMainArea"></div>
+              <div class="cp-main-darken" id="cpMainDarken"></div>
+              <div class="cp-cursor" id="cpMainCursor"></div>
+            </div>
+          </div>
+
+          <div class="cp-presets-grid" id="cpPresetsGrid"></div>
+        </div>
+
+        <div class="cp-right">
+          <div class="cp-segment-bar" id="solidRightTabs">
+            <div class="cp-segment-btn active" id="btnTabHSB" onclick="setSliderTab('hsb')">HSB</div>
+            <div class="cp-segment-btn" id="btnTabHSL" onclick="setSliderTab('hsl')">HSL</div>
+          </div>
+          
+          <div class="cp-segment-bar" id="gradientRightTabs" style="display: none;">
+            <div class="cp-segment-btn active" id="btnGradSliders" onclick="setGradRightTab('sliders')">Sliders</div>
+            <div class="cp-segment-btn" id="btnGradWheel" onclick="setGradRightTab('wheel')">Wheel</div>
+            <div class="cp-segment-btn" id="btnGradSpectrum" onclick="setGradRightTab('spectrum')">Spectrum</div>
+          </div>
+
+          <div id="cpRightCanvasTarget" style="display: none; justify-content: center; padding-top: 12px;"></div>
+
+          <div id="cpSlidersArea">
+            <div class="cp-sliders-wrap" id="cpTopSlidersContainer" style="margin-top: 12px;"></div>
+            <hr class="cp-divider">
+            <div class="cp-section-label">RGB</div>
+            <div class="cp-sliders-wrap" id="cpRgbSlidersContainer"></div>
+            <hr class="cp-divider" id="cpOpacityDivider">
+            <div class="cp-section-label" id="cpOpacityLabel">OPACITY</div>
+            <div class="cp-sliders-wrap" id="cpOpacitySliderContainer" style="margin-bottom: auto;"></div>
+          </div>
+        </div>
+
+      </div>
+      
+      <div class="cp-modal-footer">
+        <div class="cp-footer-left">
+          <div class="cp-swatch-single" id="cpSwatchNew"></div>
+          <div class="cp-hex-modal-wrap" onclick="document.getElementById('cpHexInput').focus()">
+            <span class="cp-hex-hash">#</span>
+            <input type="text" class="cp-hex-modal-inp" id="cpHexInput" maxlength="6" spellcheck="false">
+          </div>
+          <div class="cp-eyedropper-btn" id="cpEyedropperBtn" onclick="toggleEyedropper()" title="Eyedropper Tool">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" style="transition: none;"><path d="M14.31,7.57l2.11,2.11l-4.29,4.29c-1.47,1.47-3.1,2.78-4.85,3.9L4.09,19.9l2.03-3.18c1.12-1.75,2.43-3.38,3.9-4.85L14.31,7.57M14.31,6.26l-4.95,4.95c-1.52,1.52-2.87,3.2-4.02,5.01l-3.2,5.01v0.62h0.62l5.01-3.2c1.81-1.16,3.49-2.5,5.01-4.02l4.95-4.95L14.31,6.26L14.31,6.26zM21.94,4.16c-0.22-1.04-1.05-1.87-2.09-2.09c-0.93-0.19-1.79,0.09-2.41,0.64l-0.01-0.01l-2.07,2.07l-0.4-0.4l0,0c-0.37-0.37-0.9-0.57-1.48-0.48c-0.72,0.11-1.31,0.7-1.42,1.42c-0.09,0.58,0.11,1.11,0.48,1.48l0,0l4.64,4.64l0,0c0.37,0.37,0.9,0.57,1.48,0.48c0.72-0.11,1.31-0.7,1.42-1.42c0.09-0.58-0.11-1.11-0.48-1.48l0,0l-0.37-0.37l1.95-1.95c0.01-0.01,0.02-0.02,0.02-0.02l0.09-0.09l0,0C21.85,5.95,22.13,5.09,21.94,4.16zM19.27,2.94c0.13,0,0.26,0.01,0.39,0.04c0.68,0.14,1.23,0.69,1.37,1.37c0.12,0.58-0.03,1.16-0.42,1.6l-0.05,0.06l-0.02,0.02l-1.95,1.95l-0.66,0.66l0.66,0.66l0.37,0.37c0.18,0.18,0.26,0.43,0.22,0.68c-0.05,0.32-0.32,0.59-0.64,0.64C18.49,11,18.44,11,18.4,11c-0.21,0-0.4-0.08-0.55-0.23l-4.64-4.64C13.04,5.96,12.96,5.71,13,5.46c0.05-0.32,0.32-0.59,0.64-0.64c0.04-0.01,0.09-0.01,0.13-0.01c0.21,0,0.4,0.08,0.55,0.23l0.4,0.4l0.66,0.66l0.66-0.66l1.95-1.95l0.09-0.08C18.4,3.11,18.83,2.94,19.27,2.94M19.27,2.01c-0.7,0-1.34,0.27-1.82,0.7l-0.01-0.01l-2.07,2.07l-0.4-0.4l0,0c-0.31-0.31-0.74-0.5-1.21-0.5c-0.09,0-0.18,0.01-0.27,0.02c-0.72,0.11-1.31,0.7-1.42,1.42c-0.09,0.58,0.11,1.11,0.48,1.48l0,0l4.64,4.64l0,0c0.31,0.31,0.74,0.5,1.21,0.5c0.09,0,0.18-0.01,0.27-0.02c0.72-0.11,1.31-0.7,1.42-1.42c0.09-0.58-0.11-1.11-0.48-1.48l0,0l-0.37-0.37l1.95-1.95c0.01-0.01,0.02-0.02,0.02-0.02l0.09-0.09l0,0c0.55-0.62,0.83-1.48,0.64-2.41c-0.22-1.04-1.05-1.87-2.09-2.09C19.65,2.03,19.46,2.01,19.27,2.01L19.27,2.01zM2.65,21.92l0.11-0.07l-0.62-0.62l-0.07,0.11C1.83,21.72,2.27,22.16,2.65,21.92z" fill="currentColor" stroke="none"/></svg>
+          </div>
+        </div>
+        
+        <div class="cp-footer-center">
+            <div class="cp-add-btn" onclick="addCurrentColorToBank()" title="Save Color to Bank">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+            </div>
+            <div class="cp-bank-grid" id="cpBankGrid"></div>
+        </div>
+
+        <div class="cp-footer-right">
+          <button class="standard" onclick="closeCustomPicker()">Cancel</button>
+          <button class="primary" onclick="confirmCustomPicker()">OK</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+<script src="../../js/custom-cursors.js"></script>
+<script src="colorPicker-state.js"></script>
+<script src="colorPicker-icons.js"></script>
+<script src="colorPicker-color-math.js"></script>
+<script src="colorPicker-saved-colors.js"></script>
+<script src="colorPicker-gradient.js"></script>
+<script src="colorPicker-tabs.js"></script>
+<script src="colorPicker-render.js"></script>
+<script src="colorPicker-sliders.js"></script>
+<script src="colorPicker-context-menu.js"></script>
+<script src="colorPicker-modal.js"></script>
+<script src="colorPicker-messaging.js"></script>
+<script src="colorPicker-init.js"></script>
+</body>
+</html>
