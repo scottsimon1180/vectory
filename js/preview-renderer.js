@@ -301,6 +301,22 @@ window.zoomStep = (dir) => {
     setZoom(next, null, true);
 };
 
+// Zoom keys (registered in docs/keyboard-shortcuts.md): Ctrl+= / Ctrl+- step zoom in/out; plain
+// 0 fits the artboard and plain 1 goes to 100% (digit keys like the letter tool shortcuts --
+// Ctrl+0/Ctrl+1 are browser-reserved tab/zoom accelerators a page cannot claim). Only active
+// while an artboard is loaded and no text field has focus.
+document.addEventListener('keydown', (e) => {
+    if (!globalOptimizedSvg || isTextInputFocused()) return;
+    if (e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (e.key === '=' || e.key === '+') { e.preventDefault(); window.zoomStep(1); }
+        else if (e.key === '-' || e.key === '_') { e.preventDefault(); window.zoomStep(-1); }
+        return;
+    }
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === '0') { e.preventDefault(); window.fitToCanvas(true); }
+    else if (e.key === '1') { e.preventDefault(); setZoom(1, null, true); }
+});
+
 // Click the percentage -> inline editable field; commits on blur / Enter, reverts on Escape.
 window.beginZoomEdit = () => {
     const btn = $('csZoomValue');
@@ -432,9 +448,9 @@ const renderOutput = (isScrubbing = false) => {
     // geometry bounds don't change during a color/stroke drag).
     if (!isScrubbing) window.refreshElementProperties?.();
 
-    // Appearance panel + layer thumbnails mirror the committed document (undo/redo, tool
+    // Paint Panel + layer thumbnails mirror the committed document (undo/redo, tool
     // edits, pathfinder results, ... all funnel through here). Scrubs skip both.
-    if (!isScrubbing) window.refreshAppearancePanel?.();
+    if (!isScrubbing) window.refreshPaintPanel?.();
     if (!isScrubbing) window.refreshLayerThumbnails?.();
 
     // Every committed render is the app-wide change funnel: offer the document to the undo/redo

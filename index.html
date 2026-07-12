@@ -27,6 +27,13 @@
 <iframe id="cpIframe" src="pages/colorPicker/index.html" style="position: fixed; inset: 0; width: 100%; height: 100%; border: none; z-index: 9999; background: transparent; pointer-events: none;"></iframe>
 
   <div class="app-header">
+    <div class="new-artboard-actions">
+      <button id="btnNewArtboard" class="new-artboard-btn" type="button" onclick="openNewArtboard()" title="Create a new blank artboard">
+        <svg class="icon-svg"><use href="#icon-plus" xlink:href="#icon-plus"></use></svg>
+        <span>New Artboard</span>
+      </button>
+      <button id="btnQuickArtboard" class="quick-artboard-btn" type="button" onclick="createQuickArtboard()" title="Immediately start a new 1024 × 1024 project">Quick AB</button>
+    </div>
     <div class="header-left-controls">
       <button class="ws-reset-btn" onclick="resetWorkspace()" title="Reset panel layout">Reset Workspace</button>
       <button id="btnToggleHistory" class="header-guide-btn" type="button" aria-pressed="false" title="Show the History panel"><span class="header-guide-label">History</span><span class="header-guide-check" aria-hidden="true"></span></button>
@@ -195,13 +202,17 @@
 
   <div class="layout-wrapper">
     <div class="panel">
-      <div class="panel-header-row">
-        <div class="new-artboard-actions">
-          <button id="btnNewArtboard" class="new-artboard-btn" type="button" onclick="openNewArtboard()" title="Create a new blank artboard">
-            <svg class="icon-svg"><use href="#icon-plus" xlink:href="#icon-plus"></use></svg>
-            <span>New Artboard</span>
+      <div class="panel-header-row canvas-header-row">
+        <div class="quick-svg-presets" aria-label="Quick SVG presets">
+          <button class="quick-svg-preset" type="button" title="Load clipboard SVG preset" aria-label="Load clipboard SVG preset">
+            <img src="images/clipboard.svg" alt="" aria-hidden="true" draggable="false">
           </button>
-          <button id="btnQuickArtboard" class="quick-artboard-btn" type="button" onclick="createQuickArtboard()" title="Immediately start a new 1024 × 1024 project">Quick AB</button>
+          <button class="quick-svg-preset" type="button" title="Load file SVG preset" aria-label="Load file SVG preset">
+            <img src="images/file.svg" alt="" aria-hidden="true" draggable="false">
+          </button>
+          <button class="quick-svg-preset" type="button" title="Load folder SVG preset" aria-label="Load folder SVG preset">
+            <img src="images/folder.svg" alt="" aria-hidden="true" draggable="false">
+          </button>
         </div>
         <div class="canvas-toolbar">
           <button id="btnSelectionTool" class="canvas-tool-btn" onclick="toggleSelectionTool(this)" title="Selection (V)" aria-label="Selection Tool" disabled>
@@ -420,22 +431,22 @@
         
         <div class="right-dock">
 
-        <div class="side-panel panel-appearance" id="appearancePanel">
+        <div class="side-panel panel-paint" id="paintPanel">
           <div class="panel-header-flex">
-            <h4 class="panel-title" style="border:none; margin:0; padding:0;">Appearance</h4>
+            <h4 class="panel-title" style="border:none; margin:0; padding:0;">Paint</h4>
           </div>
-          <div class="ap-rows" id="appearanceRows">
+          <div class="ap-rows" id="paintRows">
             <div class="ap-row" id="apFillRow">
               <span class="ap-label">Fill</span>
               <div class="picker-wrap" id="apFillSwatch" title="Fill color"></div>
-              <button class="ap-none-btn" id="apFillNone" type="button" title="None" aria-label="Set fill to none" aria-pressed="false"></button>
+              <button class="ap-none-btn" id="apFillNone" type="button" title="None" aria-label="Set fill to none" aria-pressed="false"><svg class="icon-svg" aria-hidden="true"><use href="#icon-no-color"></use></svg></button>
               <div class="cp-input-group hex-target ap-hex" id="apFillHexGroup"><span class="cp-unit">#</span><input class="cp-hex-input" id="apFillHex" type="text" maxlength="6" spellcheck="false" autocomplete="off" aria-label="Fill hex color"></div>
               <div class="preset-group ap-presets" id="apFillPresets"></div>
             </div>
             <div class="ap-row" id="apStrokeRow">
               <span class="ap-label">Stroke</span>
               <div class="picker-wrap picker-wrap-stroke" id="apStrokeSwatch" title="Stroke color"></div>
-              <button class="ap-none-btn" id="apStrokeNone" type="button" title="None" aria-label="Set stroke to none" aria-pressed="false"></button>
+              <button class="ap-none-btn" id="apStrokeNone" type="button" title="None" aria-label="Set stroke to none" aria-pressed="false"><svg class="icon-svg" aria-hidden="true"><use href="#icon-no-color"></use></svg></button>
               <div class="cp-input-group hex-target ap-hex" id="apStrokeHexGroup"><span class="cp-unit">#</span><input class="cp-hex-input" id="apStrokeHex" type="text" maxlength="6" spellcheck="false" autocomplete="off" aria-label="Stroke hex color"></div>
               <div class="preset-group ap-presets" id="apStrokePresets"></div>
             </div>
@@ -446,10 +457,11 @@
           </div>
         </div>
 
-        <div class="side-panel panel-layers">
+        <div class="side-panel panel-layers" id="layersPanel">
 
           <div class="panel-header-flex">
             <h4 class="panel-title" style="border:none; margin:0; padding:0;">Layers</h4>
+            <button class="layers-size-toggle" id="layersSizeToggle" type="button" aria-label="Switch to small layers"><svg class="icon-svg" aria-hidden="true"><use href="#icon-small"></use></svg></button>
           </div>
 
           <div class="layers-wrap" id="layersWrap">

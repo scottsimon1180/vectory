@@ -3,8 +3,8 @@
 // "Selection" tool (Illustrator-style). While active, hovering the canvas traces the shape
 // under the cursor with a thin green hairline; clicking selects it -- drawing the green path
 // outline PLUS an oriented bounding box with 8 square handles (4 corners + 4 edge mids,
-// white fill / green outline). This is UI only: handles show resize cursors but do not yet
-// transform anything. Only one canvas tool may be active at a time, so activating this turns
+// white fill / green outline). The handles drive the shared scale/rotate transform engine.
+// Only one canvas tool may be active at a time, so activating this turns
 // the other canvas tools off (and vice-versa, via window.deactivateSelectionTool).
 //
 // Hit-testing is free (the pointer-events:none overlays mean e.target
@@ -25,6 +25,7 @@
     const SEL_HANDLE_PX = 8;        // square handle size in screen px
     const SEL_ROTATE_ZONE_PX = 18;  // invisible hover/drag target just outside each handle
     const SEL_ROTATE_ZONE_GAP = 2;
+    const SEL_ROTATE_STICK_DEG = 7; // Shift-rotate: degrees within a 45-degree detent that stick
     const SEL_HOVER_ID = 'sel-hover-outline';
     const SEL_ANIM_PAD_MS = 40;
     const SVGNS = 'http://www.w3.org/2000/svg';
@@ -60,6 +61,12 @@
     let selRotateCursorAngles = {};
 
     const selPreviewSvg = () => previewArea.querySelector(PREVIEW_SVG_SELECTOR);
+    // Illustrator keeps an object's transform box visible while drawing shapes or panning.
+    // Shape tools may also use the existing box handles without becoming the Selection tool.
+    const selChromeVisible = () => selActive
+        || previewArea.classList.contains('shape-active')
+        || previewArea.classList.contains('hand-active');
+    const selPassiveTransformEnabled = () => !selActive && previewArea.classList.contains('shape-active');
 
     // Resolve a pointer target to a real layer shape in the live preview svg (carries data-pf-index).
     // Handles are <rect>s without data-pf-index, so they resolve to null (never treated as a shape).
@@ -94,6 +101,12 @@
     const selFindShapeByIndex = (idx) => {
         const svg = selPreviewSvg();
         return (svg && idx != null) ? svg.querySelector(`[data-pf-index="${idx}"]`) : null;
+    };
+    const selSyncFromSharedSelection = () => {
+        selSelection.clear();
+        editSelectedIndices.forEach(idx => {
+            if (!lockedLayers.has(String(idx)) && selFindShapeByIndex(idx)) selSelection.add(String(idx));
+        });
     };
 
     // Central selection mutators: every membership change redraws the chrome and mirrors the set
@@ -384,7 +397,7 @@
     };
 
     const redrawSelectionOverlay = () => {
-        if (!selActive || !selectionOverlay) { hideSelectionOverlay(); return; }
+        if (!selChromeVisible() || !selectionOverlay) { hideSelectionOverlay(); return; }
 
         // While moving, the entire green UI (box, outline, handles) is hidden until release.
         if (selDrag && selDrag.mode === 'move') { hideSelectionOverlay(); return; }
@@ -436,7 +449,7 @@
     // the view transition for its duration.
     window.syncSelectionOverlay = (animate = false) => {
         if (window.isGuideDragActive?.()) { hideSelectionOverlay(); return; }
-        if (!selActive || (selHoverIndex == null && !selSelection.size && !selMarquee)) {
+        if (!selChromeVisible() || (selHoverIndex == null && !selSelection.size && !selMarquee)) {
             if (selectionOverlay && (!selectionOverlay.hasAttribute('hidden') || selectionOverlay.children.length)) hideSelectionOverlay();
             return;
         }
@@ -459,8 +472,11 @@
     // (and drop the selection if its shape no longer exists, e.g. it was fully hidden / pruned).
     window.refreshSelectionOverlay = () => {
         if (window.isGuideDragActive?.()) { hideSelectionOverlay(); return; }
-        if (!selActive) { hideSelectionOverlay(); return; }
-        selHoverIndex = null;
+        if (!selChromeVisible()) { hideSelectionOverlay(); return; }
+        if (!selActive) {
+            selSyncFromSharedSelection();
+            selHoverIndex = null;
+        }
         redrawSelectionOverlay();
     };
 
@@ -476,9 +492,9 @@
     // Adopt an externally-created selection (e.g. a Pathfinder result) as the canvas selection,
     // mirroring it into the shared edit/panel selections and redrawing the chrome. Call AFTER the
     // commit render, so the new shape exists in the preview (the redraw prunes missing members).
-    // No-op when the tool is off (the panel card highlight from selectLayer is all that remains).
+    // This remains live while another tool is active so tool-created/replaced artwork immediately
+    // becomes the persistent canvas selection.
     window.adoptCanvasSelection = (indices) => {
-        if (!selActive) return;
         selSelection.clear();
         (indices || []).forEach(idx => { if (idx != null && !lockedLayers.has(String(idx)) && selFindShapeByIndex(String(idx))) selSelection.add(String(idx)); });
         selHoverIndex = null;
@@ -488,6 +504,7 @@
     };
 
     const selDeactivate = () => {
+        selCommitNudge();                // flush an uncommitted nudge burst before the tool leaves
         if (selMarquee) selTeardownMarquee();
         if (selDrag) { selTeardownDrag(); selDrag = null; }
         selActive = false;
@@ -496,7 +513,8 @@
         previewArea.classList.remove('sel-active');
         hideSelectionOverlay();
         selHoverIndex = null;
-        selSelection.clear();        // panel selection (selectedLayerIndex) is intentionally left as-is
+        // Keep the local set: it is the transform-box mirror of the shared object selection and
+        // is reused by compatible tools until the user explicitly deselects or replaces it.
     };
 
     // Called by other tools to enforce a single active canvas tool.
@@ -505,7 +523,7 @@
 
     // Toolbar button handler. Activating turns other canvas tools off (one active tool at a time).
     window.toggleSelectionTool = (btn) => {
-        if (selActive) { selDeactivate(); return; }
+        if (selActive) return;
         window.deactivateDirectSelectionTool?.();
         window.deactivateHandTool?.();
         window.deactivateArtboardTool?.();
@@ -518,6 +536,7 @@
         // Adopt the shared canvas selection (e.g. left by the Direct Selection tool) so the
         // current object(s) stay selected across a tool switch (Illustrator-style). Membership is
         // unchanged, so the persisted group angle survives (setEditSelectionSet early-outs).
+        selSelection.clear();
         if (editSelectedIndices.size) {
             const adopt = [...editSelectedIndices].filter(idx => !lockedLayers.has(String(idx)) && selFindShapeByIndex(idx));
             if (adopt.length) {
@@ -641,7 +660,12 @@
             // whole, then only the not-yet-applied part is folded in -- so the snapped landing
             // position is exact (no incremental drift) and releasing the snap springs back.
             let dx = root.x - selDrag.startX, dy = root.y - selDrag.startY;
-            if (selDrag.snapPoints) {
+            if (selDrag.shift) {
+                // Shift constrains the move to the nearest 45-degree direction (constraint wins
+                // over snapping, Illustrator-style); releasing Shift springs back to the pointer.
+                const c = constrainVec45(dx, dy);
+                dx = c.x; dy = c.y;
+            } else if (selDrag.snapPoints) {
                 const snapped = window.snapRootDelta?.(selDrag.snapPoints, dx, dy);
                 if (snapped) { dx = snapped.dx; dy = snapped.dy; }
             }
@@ -655,12 +679,22 @@
         }
 
         if (selDrag.mode === 'rotate') {
+            // Raw rotation accumulates continuously; with Shift the rotation stays smooth but
+            // STICKS to the nearest 45-degree detent while the pointer angle is within the
+            // stick tolerance (releasing Shift springs back to the raw pointer angle).
             const nextAngle = selPointAngle(root, selDrag.cx, selDrag.cy);
-            const delta = selAngleDelta(nextAngle, selDrag.lastAngle);
+            selDrag.rawRot += selAngleDelta(nextAngle, selDrag.lastAngle);
+            selDrag.lastAngle = nextAngle;
+            let desired = selDrag.rawRot;
+            if (selDrag.shift) {
+                const nearest = Math.round(selDrag.rawRot / 45) * 45;
+                if (Math.abs(selDrag.rawRot - nearest) <= SEL_ROTATE_STICK_DEG) desired = nearest;
+            }
+            const delta = desired - selDrag.appliedRot;
             if (Math.abs(delta) < 1e-6) return;
             const M = new DOMMatrix().translate(selDrag.cx, selDrag.cy).rotate(delta).translate(-selDrag.cx, -selDrag.cy);
             if (window.applySelectionRootMatrix(M, true)) {
-                selDrag.lastAngle = nextAngle;
+                selDrag.appliedRot = desired;
                 window.addSelectionRotationDelta?.(delta);
                 selSetRotateCursor(selDrag.handleKey);
                 window.refreshElementProperties?.();
@@ -670,28 +704,46 @@
 
         // scale: target = pointer + grab offset, kept under the cursor. Scaling happens in the
         // selected shape's oriented-bbox basis, so the handles keep Illustrator-style direction
-        // after rotation. Crossing the anchor flips the sign (mirror).
+        // after rotation. Crossing the anchor flips the sign (mirror). Shift constrains the scale
+        // to the original proportions; Alt (handled by selRebaselineScale) scales from the center.
         let tx = root.x + selDrag.offX, ty = root.y + selDrag.offY;
         if (selDrag.snapAxes) {
             const sp = window.snapRootPoint?.({ x: tx, y: ty }, { axes: selDrag.snapAxes });
             if (sp) { tx = sp.x; ty = sp.y; }
         }
+        const coord = selBasisCoord(selDrag.basisInv, { x: selDrag.ax, y: selDrag.ay }, { x: tx, y: ty });
+        const clampCoord = (v) => Math.abs(v) < 1e-4 ? (v < 0 ? -1e-4 : 1e-4) : v;
         let sx = 1, sy = 1;
-        if (selDrag.scaleX) {
-            const coord = selBasisCoord(selDrag.basisInv, { x: selDrag.ax, y: selDrag.ay }, { x: tx, y: ty });
-            if (Math.abs(selDrag.lastCoordX) < 1e-6) return;
-            let nextX = coord.x;
-            if (Math.abs(nextX) < 1e-4) nextX = nextX < 0 ? -1e-4 : 1e-4;
+        let nextX = null, nextY = null, nextPassive = null;
+        if (selDrag.scaleX && selDrag.scaleY) {
+            if (Math.abs(selDrag.lastCoordX) < 1e-6 || Math.abs(selDrag.lastCoordY) < 1e-6) return;
+            nextX = clampCoord(coord.x);
+            nextY = clampCoord(coord.y);
+            if (selDrag.shift && Math.abs(selDrag.startCoordX) > 1e-6 && Math.abs(selDrag.startCoordY) > 1e-6) {
+                // Proportional: the dominant axis' total factor drives both axes; per-axis signs
+                // are preserved so mirror-on-crossing still works. Totals are measured from the
+                // gesture baseline, so releasing Shift springs back to the free pointer scale.
+                const tX = nextX / selDrag.startCoordX, tY = nextY / selDrag.startCoordY;
+                const m = Math.max(Math.abs(tX), Math.abs(tY)) || 1e-4;
+                nextX = clampCoord(selDrag.startCoordX * m * (tX < 0 ? -1 : 1));
+                nextY = clampCoord(selDrag.startCoordY * m * (tY < 0 ? -1 : 1));
+            }
             sx = nextX / selDrag.lastCoordX;
-            selDrag.nextCoordX = nextX;
-        }
-        if (selDrag.scaleY) {
-            const coord = selBasisCoord(selDrag.basisInv, { x: selDrag.ax, y: selDrag.ay }, { x: tx, y: ty });
-            if (Math.abs(selDrag.lastCoordY) < 1e-6) return;
-            let nextY = coord.y;
-            if (Math.abs(nextY) < 1e-4) nextY = nextY < 0 ? -1e-4 : 1e-4;
             sy = nextY / selDrag.lastCoordY;
-            selDrag.nextCoordY = nextY;
+        } else if (selDrag.scaleX) {
+            if (Math.abs(selDrag.lastCoordX) < 1e-6) return;
+            nextX = clampCoord(coord.x);
+            sx = nextX / selDrag.lastCoordX;
+            // Shift on an edge handle scales the passive axis by the same total factor
+            // (proportional, never mirrored); releasing Shift springs the passive axis back.
+            nextPassive = (selDrag.shift && Math.abs(selDrag.startCoordX) > 1e-6) ? Math.abs(nextX / selDrag.startCoordX) : 1;
+            sy = nextPassive / (selDrag.passiveTotal || 1);
+        } else if (selDrag.scaleY) {
+            if (Math.abs(selDrag.lastCoordY) < 1e-6) return;
+            nextY = clampCoord(coord.y);
+            sy = nextY / selDrag.lastCoordY;
+            nextPassive = (selDrag.shift && Math.abs(selDrag.startCoordY) > 1e-6) ? Math.abs(nextY / selDrag.startCoordY) : 1;
+            sx = nextPassive / (selDrag.passiveTotal || 1);
         }
         if (!Number.isFinite(sx) || !Number.isFinite(sy)) return;
 
@@ -702,19 +754,94 @@
             .multiply(selDrag.basisInv)
             .translate(-selDrag.ax, -selDrag.ay);
         if (window.applyScaleGesture(M, true)) {        // bake into geometry -> stroke stays uniform
-            if (selDrag.scaleX) selDrag.lastCoordX = selDrag.nextCoordX;
-            if (selDrag.scaleY) selDrag.lastCoordY = selDrag.nextCoordY;
+            if (nextX != null) selDrag.lastCoordX = nextX;
+            if (nextY != null) selDrag.lastCoordY = nextY;
+            if (nextPassive != null) selDrag.passiveTotal = nextPassive;
             window.refreshElementProperties?.();
         }
     };
 
+    // Re-anchor an in-progress scale drag when Alt toggles (opposite handle <-> box center):
+    // recompute the CURRENT box, re-derive the anchor + baseline coords from it, and restart the
+    // proportional baseline from the shape's current state so the incremental math stays exact.
+    const selRebaselineScale = () => {
+        const d = selDrag;
+        if (!d || d.mode !== 'scale') return;
+        let box;
+        if (selSelection.size > 1) {
+            box = selGroupQuadRoot();
+        } else {
+            const g = window.getSelectionGeom ? window.getSelectionGeom() : null;
+            if (g && g.previewShape) box = selBoxFromMatrix(g.previewShape, g.P.multiply(g.own));
+        }
+        if (!box) return;
+        const hp = selHandlePoints(box);
+        const dragPoint = hp[d.handleKey];
+        const anchor = d.alt ? box.center : hp[SEL_OPPOSITE_HANDLE[d.handleKey]];
+        if (!dragPoint || !anchor) return;
+        const sc = selBasisCoord(d.basisInv, anchor, dragPoint);
+        if (Math.abs(sc.x) < 1e-6 && Math.abs(sc.y) < 1e-6) return;
+        d.ax = anchor.x; d.ay = anchor.y;
+        d.lastCoordX = sc.x; d.lastCoordY = sc.y;
+        d.startCoordX = sc.x; d.startCoordY = sc.y;
+        d.passiveTotal = 1;
+        if (selDragPending) {
+            const r = selPointerRoot(selDragPending.x, selDragPending.y);
+            if (r) { d.offX = dragPoint.x - r.x; d.offY = dragPoint.y - r.y; }
+        }
+    };
+
+    // Alt during a move drag duplicates the selection (Illustrator-style): the clones take over
+    // the drag while the originals return to their pre-drag transforms and stay put. Works at the
+    // drag threshold (Alt held before dragging) or mid-drag (Alt pressed while moving); latched
+    // for the rest of the gesture. The clone insert is deferred-commit, so the release's single
+    // renderOutput(false) records the duplicate + move as ONE history entry.
+    const selDuplicateForMove = () => {
+        const d = selDrag;
+        if (!d || d.mode !== 'move' || d.duplicated || !selSelection.size || !globalOptimizedSvg || !window.duplicateSelectedLayer) return;
+        const prior = [...selSelection];
+        const newIdx = window.duplicateSelectedLayer(true);
+        if (!newIdx || !newIdx.length) return;
+        // Clones carry the current (possibly already-moved) transforms; the originals go back.
+        (d.snapshots || []).forEach(s => {
+            const orig = globalOptimizedSvg.querySelector(`[data-pf-index="${s.idx}"]`);
+            if (!orig) return;
+            if (s.startTransform != null) orig.setAttribute('transform', s.startTransform);
+            else orig.removeAttribute('transform');
+        });
+        d.duplicated = true;
+        d.preDup = prior;
+        selSetSelection(newIdx.map(String));
+        d.snapshots = selSnapshotMembers(false);
+        renderOutput(true);                     // clones into the preview before the next frame
+    };
+
+    // Live modifier state for the active gesture (Shift = constrain/proportional, Alt = center
+    // scale / duplicate). Fed from every pointer event AND from keydown/keyup so pressing or
+    // releasing a modifier without moving the pointer takes effect immediately.
+    const selSetDragModifiers = (shift, alt) => {
+        const d = selDrag;
+        if (!d) return;
+        d.shift = shift;
+        if (alt !== d.alt) {
+            d.alt = alt;
+            if (d.moved) {
+                if (d.mode === 'scale') selRebaselineScale();
+                else if (d.mode === 'move' && alt) selDuplicateForMove();
+            }
+        }
+        if (d.moved && selDragPending && !selDragRaf) selDragRaf = requestAnimationFrame(selApplyDragFrame);
+    };
+
     const selOnDragMove = (e) => {
         if (!selDrag || e.pointerId !== selDrag.pointerId) return;
+        selSetDragModifiers(e.shiftKey, e.altKey);
         if (!selDrag.moved) {
             if (Math.abs(e.clientX - selDrag.downX) < SEL_DRAG_THRESHOLD && Math.abs(e.clientY - selDrag.downY) < SEL_DRAG_THRESHOLD) return;
             selDrag.moved = true;
             if (selDrag.cursorClass) document.body.classList.add(selDrag.cursorClass);
             if (selDrag.mode === 'move') {                  // rebaseline so the first delta starts from here (no jump)
+                if (selDrag.alt) selDuplicateForMove();     // duplicate first: the clones drive the drag + snap
                 const r = selPointerRoot(e.clientX, e.clientY);
                 if (r) { selDrag.startX = r.x; selDrag.startY = r.y; }
                 selDrag.appliedX = 0; selDrag.appliedY = 0;
@@ -738,10 +865,12 @@
         const moved = selDrag.moved;
         const mode = selDrag.mode;
         const collapseTo = selDrag.collapseTo;
+        const duplicated = selDrag.duplicated;
         selTeardownDrag();
         selDrag = null;
         if (moved) {
-            window.setHistoryLabel?.(mode === 'rotate' ? 'Rotate' : mode === 'scale' ? 'Scale' : 'Move', mode === 'rotate' ? 'angle' : 'selection-tool');
+            if (duplicated) window.setHistoryLabel?.('Duplicate', 'layers-duplicate');   // clone + move = one entry
+            else window.setHistoryLabel?.(mode === 'rotate' ? 'Rotate' : mode === 'scale' ? 'Scale' : 'Move', mode === 'rotate' ? 'angle' : 'selection-tool');
             renderOutput(false);   // commit: flush export; tail restores full chrome + refreshes fields
         }
         // Plain click (no drag) on a member of a multi-selection collapses to just that object (AI-style).
@@ -751,6 +880,20 @@
 
     const selCancelDrag = () => {
         if (!selDrag) return;
+        if (selDrag.duplicated) {
+            // The originals were already restored when the duplicate happened; dropping the
+            // clones returns the document to its last committed state, so the renderOutput(false)
+            // below dedupes in history (no entry).
+            const preDup = selDrag.preDup || [];
+            selSelection.forEach(idx => { globalOptimizedSvg?.querySelector(`[data-pf-index="${idx}"]`)?.remove(); });
+            buildLayersPanel();
+            selSetSelection(preDup);
+            selTeardownDrag();
+            selDrag = null;
+            renderOutput(false);
+            window.updateAllScrollbars?.();
+            return;
+        }
         (selDrag.snapshots || []).forEach(s => {
             const globalShape = globalOptimizedSvg ? globalOptimizedSvg.querySelector(`[data-pf-index="${s.idx}"]`) : null;
             if (!globalShape) return;
@@ -778,7 +921,8 @@
             appliedX: 0, appliedY: 0, snapPoints: null,
             snapshots: selSnapshotMembers(false),
             collapseTo: collapseTo != null ? collapseTo : null,
-            cursorClass: null
+            cursorClass: null,
+            shift: e.shiftKey, alt: e.altKey, duplicated: false, preDup: null
         };
         selStartCapture(e);
     };
@@ -803,9 +947,11 @@
             mode: 'rotate', pointerId: e.pointerId, moved: false,
             handleKey: key, downX: e.clientX, downY: e.clientY,
             cx, cy, lastAngle: selPointAngle(root, cx, cy),
+            rawRot: 0, appliedRot: 0,
             snapshots: selSnapshotMembers(false),
             startRotation: window.getSelectionRotation?.() || 0,
-            cursorClass: SEL_ROTATE_CURSOR_CLASS
+            cursorClass: SEL_ROTATE_CURSOR_CLASS,
+            shift: e.shiftKey, alt: e.altKey
         };
         selStartCapture(e);
     };
@@ -826,7 +972,9 @@
         const basisData = selBasisFromBox(box);
         if (!basisData) return;
         const hp = selHandlePoints(box);
-        const anchor = hp[oppKey], dragPoint = hp[key];
+        // Alt scales from the box center instead of the opposite handle (Illustrator-style);
+        // toggling Alt mid-drag re-anchors through selRebaselineScale.
+        const anchor = e.altKey ? box.center : hp[oppKey], dragPoint = hp[key];
         if (!anchor || !dragPoint) return;
         const startCoord = selBasisCoord(basisData.basisInv, anchor, dragPoint);
         const root = selPointerRoot(e.clientX, e.clientY);
@@ -837,14 +985,16 @@
         const snapAxes = (spec.sx && spec.sy) ? { x: true, y: true }
             : axisAligned ? { x: spec.sx, y: spec.sy } : null;
         selDrag = {
-            mode: 'scale', pointerId: e.pointerId, moved: false,
+            mode: 'scale', pointerId: e.pointerId, moved: false, handleKey: key,
             downX: e.clientX, downY: e.clientY, snapAxes,
             ax: anchor.x, ay: anchor.y, scaleX: spec.sx, scaleY: spec.sy,
             basis: basisData.basis, basisInv: basisData.basisInv,
             lastCoordX: startCoord.x, lastCoordY: startCoord.y,
+            startCoordX: startCoord.x, startCoordY: startCoord.y, passiveTotal: 1,
             offX: dragPoint.x - root.x, offY: dragPoint.y - root.y,   // keep the grabbed point under the cursor
             snapshots: selSnapshotMembers(true),   // scaling bakes geometry -> snapshot for Esc-cancel
-            cursorClass: SEL_CURSOR_CLASS[key] || null
+            cursorClass: SEL_CURSOR_CLASS[key] || null,
+            shift: e.shiftKey, alt: e.altKey
         };
         selStartCapture(e);
     };
@@ -1001,13 +1151,19 @@
     // stroke-only shape only on its path (SVG visiblePainted) -- exactly the move rule, for free.
     previewArea.addEventListener('pointerdown', (e) => {
         if (window.isGuideDragActive?.()) return;
-        if (!selActive || e.button !== 0 || selDrag || selMarquee) return;
+        const passiveTransform = selPassiveTransformEnabled();
+        if ((!selActive && !passiveTransform) || e.button !== 0 || selDrag || selMarquee) return;
+        if (window.isHandToolTemporaryPan?.()) return;      // Space / middle-drag pan owns the press
 
         const rotateEl = (e.target && e.target.closest) ? e.target.closest('.sel-rotate-zone') : null;
         if (rotateEl) {
             if (!selSelection.size) return;
             const key = rotateEl.getAttribute('data-h');
-            if (key) { e.preventDefault(); selBeginRotate(key, e); }
+            if (key) {
+                e.preventDefault();
+                if (passiveTransform) e.stopImmediatePropagation();
+                selBeginRotate(key, e);
+            }
             return;
         }
 
@@ -1015,9 +1171,16 @@
         if (handleEl) {
             if (!selSelection.size) return;
             const key = handleEl.getAttribute('data-h');
-            if (key) { e.preventDefault(); selBeginScale(key, e); }
+            if (key) {
+                e.preventDefault();
+                if (passiveTransform) e.stopImmediatePropagation();
+                selBeginScale(key, e);
+            }
             return;
         }
+
+        // A Shape tool owns all non-handle presses so the same pointer cannot also select/move.
+        if (passiveTransform) return;
 
         const shape = selShapeFromTarget(e.target);
 
@@ -1054,11 +1217,29 @@
         selBeginMove(e, selSelection.size > 1 ? idx : null);
     });
 
+    // --- Arrow-key nudges (1px / Shift 10px / Ctrl+Shift 0.1px, artboard units) --------------
+    // Each press applies a deferred translate through the shared engine; the commit (one history
+    // entry labeled "Nudge" for the whole burst) lands on arrow keyup or after a short idle, so
+    // holding a key repeat-nudges without flooding the undo stack.
+    const SEL_ARROW = {
+        ArrowLeft: { dx: -1, dy: 0 }, ArrowRight: { dx: 1, dy: 0 },
+        ArrowUp: { dx: 0, dy: -1 }, ArrowDown: { dx: 0, dy: 1 }
+    };
+    const SEL_NUDGE_COMMIT_MS = 500;
+    let selNudgeTimer = 0, selNudgePending = false;
+    const selCommitNudge = () => {
+        if (selNudgeTimer) { clearTimeout(selNudgeTimer); selNudgeTimer = 0; }
+        if (!selNudgePending) return;
+        selNudgePending = false;
+        window.setHistoryLabel?.('Nudge', 'selection-tool');
+        renderOutput(false);
+    };
+
     // V selects the Selection tool (Illustrator) -- inert in text fields / eyedropper / no artboard.
     // Escape cancels an in-progress drag (revert to the pre-drag transforms); with a multi
-    // selection it clears the selection (tool stays on); otherwise it turns the tool off
-    // (guarded so it never clashes with the eyedropper's Escape). Ctrl+A selects every visible
-    // object -- skipped while a text field has focus so native select-all survives.
+    // selection it clears the selection (tool stays on). Ctrl+A selects every visible
+    // object -- skipped while a text field has focus so native select-all survives. Shift/Alt
+    // feed the live gesture modifiers; Delete/Backspace delete the selection; arrows nudge.
     document.addEventListener('keydown', (e) => {
         if ((e.key === 'v' || e.key === 'V') && !e.ctrlKey && !e.altKey && !e.metaKey && !e.repeat
             && !selActive && globalOptimizedSvg && !isTextInputFocused() && !isEyedropperMode) {
@@ -1067,11 +1248,16 @@
             return;
         }
         if (!selActive) return;
+        if (e.key === 'Escape' && isTextInputFocused()) return;
+        if (selDrag && (e.key === 'Shift' || e.key === 'Alt')) {
+            if (e.key === 'Alt') e.preventDefault();      // keep the browser menu from grabbing focus
+            selSetDragModifiers(e.key === 'Shift' ? true : selDrag.shift, e.key === 'Alt' ? true : selDrag.alt);
+            return;
+        }
         if (e.key === 'Escape') {
             if (selMarquee) { e.preventDefault(); selTeardownMarquee(); redrawSelectionOverlay(); return; }
             if (selDrag) { e.preventDefault(); selCancelDrag(); return; }
-            if (selSelection.size > 1) { selClearSelection(); return; }
-            if (!isEyedropperMode) selDeactivate();
+            if (selSelection.size && !isEyedropperMode) { e.preventDefault(); selClearSelection(); }
             return;
         }
         if ((e.key === 'a' || e.key === 'A') && e.ctrlKey && !e.altKey && !e.repeat && !isTextInputFocused()) {
@@ -1080,7 +1266,38 @@
             e.preventDefault();
             const all = getEditableLayerShapes(svg).map(s => s.getAttribute('data-pf-index')).filter(i => i != null);
             if (all.length) selSetSelection(all);
+            return;
+        }
+        if (selDrag || selMarquee || !selSelection.size || isTextInputFocused()) return;
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+            e.preventDefault();
+            selCommitNudge();                     // flush a pending nudge before the delete commits
+            window.deleteSelectedLayer?.();       // canvas selection mirrors the panel selection
+            return;
+        }
+        const arrow = SEL_ARROW[e.key];
+        if (arrow && !e.altKey && !e.metaKey) {
+            if (e.ctrlKey && !e.shiftKey) return;                 // plain Ctrl+arrow is unclaimed
+            e.preventDefault();
+            const step = e.ctrlKey ? 0.1 : e.shiftKey ? 10 : 1;   // Ctrl+Shift = fine 0.1px
+            if (window.applySelectionRootMatrix(new DOMMatrix().translate(arrow.dx * step, arrow.dy * step), true)) {
+                selNudgePending = true;
+                window.refreshElementProperties?.();
+                if (selNudgeTimer) clearTimeout(selNudgeTimer);
+                selNudgeTimer = setTimeout(selCommitNudge, SEL_NUDGE_COMMIT_MS);
+            }
         }
     });
+
+    // Keyup: commit a nudge burst; release a held gesture modifier without pointer movement.
+    document.addEventListener('keyup', (e) => {
+        if (SEL_ARROW[e.key]) { selCommitNudge(); return; }
+        if (selDrag && (e.key === 'Shift' || e.key === 'Alt')) {
+            if (e.key === 'Alt') e.preventDefault();
+            selSetDragModifiers(e.key === 'Shift' ? false : selDrag.shift, e.key === 'Alt' ? false : selDrag.alt);
+        }
+    });
+
+    window.addEventListener('blur', selCommitNudge);
 
 })();

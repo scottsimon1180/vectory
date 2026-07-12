@@ -68,6 +68,10 @@
         const svg = penPreviewSvg();
         return (svg && idx != null) ? svg.querySelector(`[data-pf-index="${idx}"]`) : null;
     };
+    const penSharedVectorIndex = () => [...editSelectedIndices].find(idx => {
+        const shape = penFindPreviewShape(idx);
+        return !!(shape && shape.matches(SVG_VECTOR_LAYER_SHAPE_SELECTOR) && !lockedLayers.has(String(idx)));
+    }) || null;
     const penGlobalShape = (idx) =>
         (globalOptimizedSvg && idx != null) ? globalOptimizedSvg.querySelector(`[data-pf-index="${idx}"]`) : null;
 
@@ -290,6 +294,20 @@
                     const a = sub.anchors[penHoverEndpoint.end === 'start' ? 0 : sub.anchors.length - 1];
                     const p = M.multiply(g.F).transformPoint(new DOMPoint(a.x, a.y));
                     penDrawSquare(p, true);
+                }
+            } else if (penTarget != null) {
+                // An idle Pen keeps the selected vector's outline and anchors visible, matching
+                // Illustrator's persistent object selection across tool switches.
+                const g = penGeom(penTarget);
+                const model = g ? penModel(g.previewShape, penTarget) : null;
+                if (model) {
+                    penDrawOutline(g.previewShape, svg, M);
+                    const full = M.multiply(g.F);
+                    model.subpaths.forEach(sub => sub.anchors.forEach(a => {
+                        penDrawSquare(full.transformPoint(new DOMPoint(a.x, a.y)), false);
+                    }));
+                } else {
+                    penTarget = null;
                 }
             }
         } else if (penTarget != null) {
@@ -519,8 +537,16 @@
             }
         }
         renderOutput(false);
+        if (penGlobalShape(p.idx)) {
+            penTarget = String(p.idx);
+            window.adoptCanvasSelection?.([p.idx]);
+        } else {
+            penTarget = null;
+            window.adoptCanvasSelection?.([]);
+        }
         if (penPendingRebuild) { penPendingRebuild = false; penRebindPanel(p.idx); }
         penApplyModeCursor();
+        redrawPenOverlay();
     };
 
     // Esc mid-gesture: roll the shape back to its pre-gesture geometry.
@@ -545,6 +571,7 @@
             window.updateAllScrollbars?.();
         }
         renderOutput(false);
+        if (d.kind === 'first') window.adoptCanvasSelection?.([]);
         penApplyModeCursor();
     };
 
@@ -701,7 +728,7 @@
         if (sp) root = sp;
         const path = document.createElementNS(SVGNS, 'path');
         path.setAttribute('d', `M ${penNum(root.x)} ${penNum(root.y)}`);
-        // New paths take the current drawing defaults (Appearance panel with nothing
+        // New paths take the current drawing defaults (Paint Panel with nothing
         // selected, js/layers.js); the app default is no fill + black stroke.
         const d = window.getDrawingDefaults ? window.getDrawingDefaults() : { fill: 'none', stroke: '#000000', strokeWidth: (window.getShapeToolDefaultStrokeWidth ? window.getShapeToolDefaultStrokeWidth() : '1') };
         path.setAttribute('fill', d.fill);
@@ -713,12 +740,29 @@
         wrapper.appendChild(path);
         buildLayersPanel();
         window.selectLayer?.(idx);
+        window.setEditSelectionSet?.([idx]);
+        penTarget = String(idx);
         renderOutput(true);                              // live preview; the pointerup commits
+        window.adoptCanvasSelection?.([idx]);
         window.updateAllScrollbars?.();
         penPath = { idx: String(idx), sub: 0, createdNew: true };
         const model = penModel(path, idx);
         if (model) penBeginDrag(e, 'first', idx, 0, 0, path, model, null);   // cancel removes the element
         penSetCursor(null);
+    };
+
+    // Root-space position of the in-progress path's last anchor -- the base point for the
+    // Shift 45-degree constraint (anchor placement + hover rubber-band pinning).
+    const penPrevAnchorRoot = () => {
+        if (!penPath) return null;
+        const globalShape = penGlobalShape(penPath.idx);
+        const g = penGeom(penPath.idx);
+        const model = globalShape && g ? penModel(globalShape, penPath.idx) : null;
+        const sub = model && model.subpaths[penPath.sub];
+        if (!sub || !sub.anchors.length || sub.closed) return null;
+        const a = sub.anchors[sub.anchors.length - 1];
+        const p = g.F.transformPoint(new DOMPoint(a.x, a.y));
+        return { x: p.x, y: p.y };
     };
 
     const penPlaceAnchor = (e) => {
@@ -729,8 +773,17 @@
         if (!sub || sub.closed) { penPath = null; penApplyModeCursor(); return; }
         let root = penPointerRoot(e.clientX, e.clientY);
         if (!root) return;
-        const sp = window.snapRootPoint?.(root);
-        if (sp) root = sp;
+        if (e.shiftKey && sub.anchors.length) {
+            // Shift constrains the new anchor to the nearest 45-degree direction from the
+            // previous anchor (constraint wins over snapping, Illustrator-style).
+            const prev = sub.anchors[sub.anchors.length - 1];
+            const p = g.F.transformPoint(new DOMPoint(prev.x, prev.y));
+            const c = constrainVec45(root.x - p.x, root.y - p.y);
+            root = { x: p.x + c.x, y: p.y + c.y };
+        } else {
+            const sp = window.snapRootPoint?.(root);
+            if (sp) root = sp;
+        }
         const local = g.Finv.transformPoint(new DOMPoint(root.x, root.y));
         const snapshot = window.snapshotShapeGeometry?.(globalShape);
         sub.anchors.push({ x: local.x, y: local.y, hIn: null, hOut: null });
@@ -769,10 +822,27 @@
         penPath = { idx: String(ep.idx), sub: ep.sub, createdNew: false };
         penHoverEndpoint = null;
         window.selectLayer?.(ep.idx);
+        window.setEditSelectionSet?.([ep.idx]);
+        penTarget = String(ep.idx);
         renderOutput(true);
+        window.adoptCanvasSelection?.([ep.idx]);
         const snapshot = window.snapshotShapeGeometry?.(globalShape);
         penBeginDrag(e, 'continue', ep.idx, ep.sub, sub.anchors.length - 1, globalShape, model, snapshot);
         penSetCursor(null);
+    };
+
+    // Manual double-click detection for pointerdown (e.detail is 0 on pointer events in some
+    // browsers): two presses within the time/distance window count as a double-click. The FIRST
+    // press of the pair places the final anchor as usual; the second ends the path.
+    let penLastClick = null;    // { t, x, y } of the previous path-in-progress press
+    const PEN_DBLCLICK_MS = 400, PEN_DBLCLICK_PX = 5;
+    const penIsDoubleClick = (e) => {
+        const now = performance.now();
+        const last = penLastClick;
+        penLastClick = { t: now, x: e.clientX, y: e.clientY };
+        return !!(last && now - last.t <= PEN_DBLCLICK_MS
+            && Math.abs(e.clientX - last.x) <= PEN_DBLCLICK_PX
+            && Math.abs(e.clientY - last.y) <= PEN_DBLCLICK_PX);
     };
 
     previewArea.addEventListener('pointerdown', (e) => {
@@ -785,11 +855,13 @@
 
         if (penPath) {
             e.preventDefault();
-            if (e.detail >= 2) { penEndPath(); return; }          // double-click ends the path
+            // Double-click ends the path (the pair's first press already placed the final anchor).
+            if (e.detail >= 2 || penIsDoubleClick(e)) { penLastClick = null; penEndPath(); return; }
             if (penHitFirstAnchor(e.clientX, e.clientY)) { penClosePath(e); return; }
             penPlaceAnchor(e);
             return;
         }
+        penLastClick = null;    // presses outside an in-progress path never pair into a double-click
 
         const ep = penFindOpenEndpoint(e.clientX, e.clientY);
         e.preventDefault();
@@ -811,12 +883,21 @@
             }
             // Smart-guide preview: snap the hover point (feedback only -- the click itself snaps
             // in penStartNewPath/penPlaceAnchor) and pin the rubber band to the snapped spot.
+            // With Shift held mid-path, the rubber band pins to the 45-degree-constrained point
+            // instead (matching what a Shift-click would place).
             const rootPt = penPointerRoot(e.clientX, e.clientY);
             if (rootPt) {
-                const sp = window.snapRootPoint?.(rootPt);
-                if (sp && (sp.x !== rootPt.x || sp.y !== rootPt.y)) {
-                    const c = penRootToClient(sp.x, sp.y);
-                    if (c) penCursorPt = c;
+                const prev = (e.shiftKey && penPath) ? penPrevAnchorRoot() : null;
+                if (prev) {
+                    const cv = constrainVec45(rootPt.x - prev.x, rootPt.y - prev.y);
+                    const pin = penRootToClient(prev.x + cv.x, prev.y + cv.y);
+                    if (pin) penCursorPt = pin;
+                } else {
+                    const sp = window.snapRootPoint?.(rootPt);
+                    if (sp && (sp.x !== rootPt.x || sp.y !== rootPt.y)) {
+                        const c = penRootToClient(sp.x, sp.y);
+                        if (c) penCursorPt = c;
+                    }
                 }
             }
             queuePenRedraw();
@@ -877,7 +958,7 @@
         if (penDrag) { penTeardownDrag(); penDrag = null; }
         if (penPath) penEndPath();
         penMode = mode;
-        penTarget = null;
+        penTarget = penSharedVectorIndex();
         penHoverEndpoint = null;
         penSetModeButtons();
         penApplyModeCursor();
@@ -900,6 +981,8 @@
         if (bar) bar.hidden = false;
         penSetModeButtons();
         penApplyModeCursor();
+        penTarget = penSharedVectorIndex();
+        redrawPenOverlay();
     };
 
     const penDeactivate = () => {
@@ -921,7 +1004,7 @@
     window.deactivatePenTool = () => { if (penActive) penDeactivate(); };
 
     window.togglePenTool = (btn) => {
-        if (penActive) { penDeactivate(); return; }
+        if (penActive) return;
         penMode = 'draw';                        // a fresh activation always starts in draw mode
         penActivate(btn);
     };
@@ -957,12 +1040,18 @@
             return;
         }
         if (!penActive) return;
+        if (e.key === 'Escape' && isTextInputFocused()) return;
 
         if (e.key === 'Escape') {
             if (penDrag) { e.preventDefault(); penCancelDrag(); return; }
             if (penPath) { e.preventDefault(); penEndPath(); return; }
-            if (penTarget != null) { penTarget = null; redrawPenOverlay(); return; }
-            if (!isEyedropperMode) penDeactivate();
+            if (penTarget != null && !isEyedropperMode) {
+                e.preventDefault();
+                const selectedTarget = editSelectedIndices.has(String(penTarget));
+                penTarget = null;
+                if (selectedTarget) window.adoptCanvasSelection?.([]);
+                redrawPenOverlay();
+            }
             return;
         }
         if (e.key === 'Enter' && penPath && !isTextInputFocused()) {

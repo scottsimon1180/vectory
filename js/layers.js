@@ -1,6 +1,30 @@
 ﻿/* fileName: layers.js */
 
 // Reads a gradient referenced by url(#id) from the live/original SVG into { type, angle, stops }.
+// Layer density is a panel preference, independent of the imported document.
+const LP_SIZE_KEY = 'pf_layersSize';
+const layersPanel = document.getElementById('layersPanel');
+const layersSizeToggle = document.getElementById('layersSizeToggle');
+let layersSize = 'large';
+
+try { if (localStorage.getItem(LP_SIZE_KEY) === 'small') layersSize = 'small'; } catch (_) {}
+
+const applyLayersSize = () => {
+    const isSmall = layersSize === 'small';
+    layersPanel.classList.toggle('is-small', isSmall);
+    layersSizeToggle.innerHTML = `<svg class="icon-svg" aria-hidden="true"><use href="#icon-${isSmall ? 'large' : 'small'}"></use></svg>`;
+    layersSizeToggle.setAttribute('aria-label', `Switch to ${isSmall ? 'large' : 'small'} layers`);
+    requestAnimationFrame(() => window.updateAllScrollbars?.());
+};
+
+applyLayersSize();
+
+layersSizeToggle.addEventListener('click', () => {
+    layersSize = layersSize === 'small' ? 'large' : 'small';
+    applyLayersSize();
+    try { localStorage.setItem(LP_SIZE_KEY, layersSize); } catch (_) {}
+});
+
 let __lpSwatchGradSeq = 0;
 
 const readGradData = (gradRef) => {
@@ -47,7 +71,7 @@ const AP_MIXED = '__ap-mixed__';
 
 // Paints the launch-picker swatch: solid fill = filled square, solid stroke = hollow outlined square,
 // gradients are painted (filled / outlined) via an inline SVG. Hairlines keep it visible on any color.
-// The Appearance panel adds two more states: 'none' (white + red slash) and AP_MIXED ('?'), both
+// The Paint Panel adds two more states: 'none' (white + red slash) and AP_MIXED ('?'), both
 // rendered purely by the .lp-none / .lp-mixed classes in css/style.css.
 const renderPickerSwatch = (wrap, activeHex, isStroke, gradData) => {
 
@@ -128,7 +152,7 @@ const renderPickerSwatch = (wrap, activeHex, isStroke, gradData) => {
 
 
 
-// Inline layer rename: double-clicking a title swaps it for a pre-selected text field; commits on
+// Inline layer rename: double-clicking the title label swaps it for a pre-selected text field; commits on
 // blur/Enter, cancels on Escape. The name is written to the live element id.
 const commitLayerRename = (shape, rawValue, index) => {
 
@@ -192,7 +216,9 @@ const beginRename = (titleEl, shape, index) => {
 
         const name = commit ? commitLayerRename(shape, input.value, index) : fallback;
 
-        titleEl.textContent = name;
+        titleEl.textContent = '';
+
+        titleEl.appendChild(createEl('span', 'layer-title-label', { textContent: name }));
 
         titleEl.classList.add('rename-flash');
 
@@ -226,8 +252,6 @@ window.selectLayer = (pfIndex, event) => {
 
     const idx = String(pfIndex);
 
-    if (lockedLayers.has(idx)) return;   // locked layers can't be selected (leave the current selection as-is)
-
     if (event && event.ctrlKey && event.shiftKey && lastClickedLayerIndex != null) {
 
         const cards = Array.from(layersList.querySelectorAll('.layer-item'));
@@ -240,7 +264,7 @@ window.selectLayer = (pfIndex, event) => {
 
             const from = Math.min(anchorPos, targetPos), to = Math.max(anchorPos, targetPos);
 
-            for (let i = from; i <= to; i++) { const pf = cards[i].getAttribute('data-pf-index'); if (pf != null && !lockedLayers.has(pf)) selectedLayerIndex.add(pf); }
+            for (let i = from; i <= to; i++) { const pf = cards[i].getAttribute('data-pf-index'); if (pf != null) selectedLayerIndex.add(pf); }
 
         }
 
@@ -258,7 +282,7 @@ window.selectLayer = (pfIndex, event) => {
 
             const from = Math.min(anchorPos, targetPos), to = Math.max(anchorPos, targetPos);
 
-            for (let i = from; i <= to; i++) { const pf = cards[i].getAttribute('data-pf-index'); if (pf != null && !lockedLayers.has(pf)) selectedLayerIndex.add(pf); }
+            for (let i = from; i <= to; i++) { const pf = cards[i].getAttribute('data-pf-index'); if (pf != null) selectedLayerIndex.add(pf); }
 
         }
 
@@ -288,7 +312,7 @@ window.selectLayer = (pfIndex, event) => {
 
     syncDeleteLayerBtn();
 
-    window.refreshAppearancePanel?.();
+    window.refreshPaintPanel?.();
 
 };
 
@@ -304,7 +328,7 @@ window.clearLayerSelection = () => {
 
     syncDeleteLayerBtn();
 
-    window.refreshAppearancePanel?.();
+    window.refreshPaintPanel?.();
 
 };
 
@@ -326,7 +350,7 @@ window.setLayerSelectionSet = (indices) => {
 
     syncDeleteLayerBtn();
 
-    window.refreshAppearancePanel?.();
+    window.refreshPaintPanel?.();
 
 };
 
@@ -336,7 +360,7 @@ window.setLayerSelectionSet = (indices) => {
 // The header trash button removes the selected shape from the model and re-renders.
 // data-pf-index is a stable per-shape attribute (never renumbered), so deleting one
 // element leaves every other card, lock, and selection valid.
-const LP_LIST_GAP = 8;   // matches .layers-list gap:8px (absorbed by the card's exit margin)
+const LP_LIST_GAP = 5;   // matches .layers-list gap:5px (absorbed by the card's exit margin)
 
 // Keep layer header actions visible but greyed until they can act.
 const syncDeleteLayerBtn = () => {
@@ -350,7 +374,7 @@ const syncDeleteLayerBtn = () => {
 
         if (!btn) return;
 
-        btn.disabled = (selectedLayerIndex.size === 0);
+        btn.disabled = ![...selectedLayerIndex].some(idx => !lockedLayers.has(idx));
 
     });
 
@@ -417,9 +441,12 @@ const getDuplicateLayerLabel = (sourceLabel) => {
 
 };
 
-window.duplicateSelectedLayer = () => {
+// deferCommit=true (Selection tool Alt-drag duplicate) skips the history label + committed
+// render + card animation so the caller's gesture can commit the clone and its move as ONE
+// history entry. Returns the new data-pf-index list (null when nothing was duplicated).
+window.duplicateSelectedLayer = (deferCommit = false) => {
 
-    if (selectedLayerIndex.size === 0 || !globalOptimizedSvg) return;
+    if (selectedLayerIndex.size === 0 || !globalOptimizedSvg) return null;
 
     const indices = new Set(selectedLayerIndex);
 
@@ -429,9 +456,12 @@ window.duplicateSelectedLayer = () => {
 
     const allShapes = Array.from(globalOptimizedSvg.querySelectorAll('[data-pf-index]'));
 
-    const toClone = allShapes.filter(s => indices.has(s.getAttribute('data-pf-index')));
+    const toClone = allShapes.filter(s => {
+        const idx = s.getAttribute('data-pf-index');
+        return indices.has(idx) && !lockedLayers.has(idx);
+    });
 
-    if (!toClone.length) { window.clearLayerSelection(); return; }
+    if (!toClone.length) { window.clearLayerSelection(); return null; }
 
     const newIndices = [];
 
@@ -499,17 +529,23 @@ window.duplicateSelectedLayer = () => {
 
     syncDeleteLayerBtn();
 
-    window.setHistoryLabel?.('Duplicate Layer', 'layers-duplicate');
+    if (!deferCommit) {
 
-    renderOutput(false);
+        window.setHistoryLabel?.('Duplicate Layer', 'layers-duplicate');
 
-    newIndices.forEach(idx => {
+        renderOutput(false);
 
-        insertLayerCardAnimated(layersList.querySelector(`.layer-item[data-pf-index="${idx}"]`));
+        newIndices.forEach(idx => {
 
-    });
+            insertLayerCardAnimated(layersList.querySelector(`.layer-item[data-pf-index="${idx}"]`));
+
+        });
+
+    }
 
     window.updateAllScrollbars();
+
+    return newIndices;
 
 };
 
@@ -632,7 +668,7 @@ window.deleteSelectedLayer = () => {
 
         const card = layersList.querySelector(`.layer-item[data-pf-index="${idx}"]`);
 
-        if (shape) entries.push({ idx, shape, card });
+        if (shape && !lockedLayers.has(idx)) entries.push({ idx, shape, card });
 
     });
 
@@ -698,7 +734,7 @@ const buildLayersPanel = () => {
 
     editSelectedIndices.clear();
 
-    if (!globalOptimizedSvg) { syncDeleteLayerBtn(); window.refreshAppearancePanel?.(); window.updateAllScrollbars(); return; }
+    if (!globalOptimizedSvg) { syncDeleteLayerBtn(); window.refreshPaintPanel?.(); window.updateAllScrollbars(); return; }
 
     
 
@@ -743,7 +779,7 @@ const buildLayersPanel = () => {
 
         syncDeleteLayerBtn();
 
-        window.refreshAppearancePanel?.();
+        window.refreshPaintPanel?.();
 
         window.updateAllScrollbars();
 
@@ -771,15 +807,23 @@ const buildLayersPanel = () => {
     // layers alike. Hide (eye) and lock are UI-only, tracked in hiddenLayers/lockedLayers
     // (app-state) keyed by data-pf-index; both stay live regardless of each other. Hidden
     // shapes are dropped from the render/export clones; locked shapes get pointer-events:none
-    // in the preview so no canvas tool can touch them and the panel can't select them. Fill
-    // and stroke are edited in the Appearance panel (below in this file), never on the card.
+    // in the preview so no canvas tool can touch them; panel selection and reordering remain available. Fill
+    // and stroke are edited in the Paint Panel (below in this file), never on the card.
     const createLayerCard = (shape, i) => {
 
         const idxStr = String(shape.getAttribute('data-pf-index'));
 
-        const titleEl = createEl('div', 'layer-title', { textContent: resolveLayerName(shape, i), title: 'Double-click to rename' });
+        const titleEl = createEl('div', 'layer-title', {}, [
 
-        titleEl.ondblclick = () => beginRename(titleEl, shape, i);   // rename stays available even when locked
+            createEl('span', 'layer-title-label', { textContent: resolveLayerName(shape, i) })
+
+        ]);
+
+        titleEl.ondblclick = e => {
+
+            if (!lockedLayers.has(idxStr) && e.target.closest('.layer-title-label')) beginRename(titleEl, shape, i);
+
+        };
 
         let thumb;
 
@@ -812,15 +856,24 @@ const buildLayersPanel = () => {
 
             const hide = !hiddenLayers.has(idxStr);
 
-            if (hide) hiddenLayers.add(idxStr); else hiddenLayers.delete(idxStr);
+            const targets = selectedLayerIndex.has(idxStr) && selectedLayerIndex.size > 1
+                ? [...selectedLayerIndex]
+                : [idxStr];
 
-            if (layerItem) layerItem.classList.toggle('is-layer-hidden', hide);
+            targets.forEach(targetIdx => {
+                if (hide) hiddenLayers.add(targetIdx); else hiddenLayers.delete(targetIdx);
 
-            eye.classList.toggle('hidden-state', hide);
+                const card = layersList.querySelector(`.layer-item[data-pf-index="${targetIdx}"]`);
+                const targetEye = card?.querySelector('.layer-eye');
 
-            eye.title = hide ? 'Show layer' : 'Hide layer';
+                card?.classList.toggle('is-layer-hidden', hide);
+                targetEye?.classList.toggle('hidden-state', hide);
 
-            eye.innerHTML = eyeIconHtml(hide);
+                if (targetEye) {
+                    targetEye.title = hide ? 'Show layer' : 'Hide layer';
+                    targetEye.innerHTML = eyeIconHtml(hide);
+                }
+            });
 
             renderOutput(false);   // model unchanged -> no history entry; preview + export follow the set
 
@@ -837,27 +890,30 @@ const buildLayersPanel = () => {
 
             const locking = !lockedLayers.has(idxStr);
 
-            if (locking) lockedLayers.add(idxStr); else lockedLayers.delete(idxStr);
+            const targets = selectedLayerIndex.has(idxStr) && selectedLayerIndex.size > 1
+                ? [...selectedLayerIndex]
+                : [idxStr];
 
-            if (layerItem) layerItem.classList.toggle('is-locked', locking);
+            targets.forEach(targetIdx => {
+                if (locking) lockedLayers.add(targetIdx); else lockedLayers.delete(targetIdx);
 
-            lock.classList.toggle('locked-state', locking);
+                const card = layersList.querySelector(`.layer-item[data-pf-index="${targetIdx}"]`);
+                const targetLock = card?.querySelector('.layer-lock');
 
-            lock.title = locking ? 'Unlock layer' : 'Lock layer';
+                card?.classList.toggle('is-locked', locking);
+                targetLock?.classList.toggle('locked-state', locking);
 
-            lock.innerHTML = lockIconHtml(locking);
+                if (targetLock) {
+                    targetLock.title = locking ? 'Unlock layer' : 'Lock layer';
+                    targetLock.innerHTML = lockIconHtml(locking);
+                }
+            });
 
-            // A locked layer can't stay selected. If it was selected anywhere (panel card, canvas
-            // edit set, or the Selection tool's on-canvas chrome -- which lingers because a locked
-            // shape stays in the preview), drop the whole selection so nothing stale is left behind.
-            if (locking && (selectedLayerIndex.has(idxStr) || editSelectedIndex === idxStr || editSelectedIndices.has(idxStr))) {
-
-                window.clearLayerSelection?.();
-
+            // Locked rows remain selected in the panel so a group can be unlocked together, but
+            // any canvas edit selection must still be cleared because locked art is not editable.
+            if (locking && targets.some(targetIdx => editSelectedIndex === targetIdx || editSelectedIndices.has(targetIdx))) {
                 window.clearEditSelection?.();
-
                 window.clearSelectionToolLock?.();
-
             }
 
             renderOutput(false);   // model unchanged -> no history entry; refreshes preview pointer-events
@@ -884,7 +940,7 @@ const buildLayersPanel = () => {
 
     syncDeleteLayerBtn();
 
-    window.refreshAppearancePanel?.();
+    window.refreshPaintPanel?.();
 
     window.refreshLayerThumbnails?.();
 
@@ -1156,7 +1212,12 @@ window.initLayerDnD = (() => {
 
             const contentY = lastClientY - listRect.top + layersList.scrollTop;
 
-            const dy = contentY - startContentY;
+            const rawDy = contentY - startContentY;
+            const firstItem = items[0];
+            const lastItem = items[items.length - 1];
+            const minDy = firstItem.offsetTop - dragItem.offsetTop;
+            const maxDy = lastItem.offsetTop + lastItem.offsetHeight - dragItem.offsetTop - dragItem.offsetHeight;
+            const dy = Math.max(minDy, Math.min(maxDy, rawDy));
 
             dragItem.style.transform = `translateY(${dy}px) scale(1.015)`;
 
@@ -1318,7 +1379,7 @@ window.initLayerDnD = (() => {
 
             const listRect = layersList.getBoundingClientRect();
 
-            step = items.length > 1 ? Math.abs(items[1].offsetTop - items[0].offsetTop) : (dragItem.offsetHeight + 8);
+            step = items.length > 1 ? Math.abs(items[1].offsetTop - items[0].offsetTop) : (dragItem.offsetHeight + LP_LIST_GAP);
 
             startContentY = cand.startY - listRect.top + layersList.scrollTop;
 
@@ -1354,8 +1415,6 @@ window.initLayerDnD = (() => {
 
             if (!item) return;
 
-            if (lockedLayers.has(item.getAttribute('data-pf-index'))) return;   // locked layers don't reorder
-
             cand = { item, startX: e.clientX, startY: e.clientY, pointerId: e.pointerId };
 
             window.addEventListener('pointermove', onPointerMove);
@@ -1370,22 +1429,172 @@ window.initLayerDnD = (() => {
 
 })();
 
+// Drag on any empty part between the Layers header and footer to draw an
+// Illustrator-style marquee. Every card the rectangle touches is selected.
+window.initLayerMarquee = (() => {
+
+    let inited = false;
+
+    return () => {
+
+        const panel = document.getElementById('layersPanel');
+        const header = panel?.querySelector('.panel-header-flex');
+        const footer = panel?.querySelector('.layers-toolbar');
+
+        if (inited || !panel || !header || !footer || !layersList) return;
+
+        inited = true;
+
+        const THRESHOLD = 3;
+        let cand = null, marquee = null, dragging = false, marqueeRaf = 0;
+        let pendingX = 0, pendingY = 0;
+
+        const stop = () => {
+
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            window.removeEventListener('pointercancel', onUp);
+
+            if (marqueeRaf) cancelAnimationFrame(marqueeRaf);
+            if (marquee) marquee.remove();
+
+            cand = null; marquee = null; dragging = false; marqueeRaf = 0;
+
+        };
+
+        const paintSelection = (clientX, clientY) => {
+
+            const left = Math.min(cand.startX, clientX);
+            const top = Math.min(cand.startY, clientY);
+            const right = Math.max(cand.startX, clientX);
+            const bottom = Math.max(cand.startY, clientY);
+            const panelRect = panel.getBoundingClientRect();
+            const bodyTop = header.getBoundingClientRect().bottom;
+            const bodyBottom = footer.getBoundingClientRect().top;
+            const drawLeft = Math.max(panelRect.left, Math.min(panelRect.right, left));
+            const drawTop = Math.max(bodyTop, Math.min(bodyBottom, top));
+            const drawRight = Math.max(panelRect.left, Math.min(panelRect.right, right));
+            const drawBottom = Math.max(bodyTop, Math.min(bodyBottom, bottom));
+
+            marquee.style.left = `${drawLeft - panelRect.left}px`;
+            marquee.style.top = `${drawTop - panelRect.top}px`;
+            marquee.style.width = `${drawRight - drawLeft}px`;
+            marquee.style.height = `${drawBottom - drawTop}px`;
+
+            const nextSelection = new Set();
+
+            layersList.querySelectorAll('.layer-item').forEach(item => {
+
+                const r = item.getBoundingClientRect();
+                const intersects = r.right >= left && r.left <= right && r.bottom >= top && r.top <= bottom;
+                const idx = item.getAttribute('data-pf-index');
+
+                if (intersects && idx != null) nextSelection.add(idx);
+
+            });
+
+            const changed = nextSelection.size !== selectedLayerIndex.size ||
+                [...nextSelection].some(idx => !selectedLayerIndex.has(idx));
+
+            if (!changed) return;
+
+            selectedLayerIndex.clear();
+            nextSelection.forEach(idx => selectedLayerIndex.add(idx));
+
+            layersList.querySelectorAll('.layer-item').forEach(item => {
+
+                item.classList.toggle('is-selected', selectedLayerIndex.has(item.getAttribute('data-pf-index')));
+
+            });
+
+            syncDeleteLayerBtn();
+            window.refreshPaintPanel?.();
+
+        };
+
+        function onMove(e) {
+
+            if (!cand || e.pointerId !== cand.pointerId) return;
+
+            if (!dragging) {
+
+                if (Math.abs(e.clientX - cand.startX) < THRESHOLD && Math.abs(e.clientY - cand.startY) < THRESHOLD) return;
+
+                dragging = true;
+                marquee = createEl('div', 'layers-marquee');
+                panel.appendChild(marquee);
+                document.body.classList.add('is-marquee-selecting-layers');
+
+            }
+
+            e.preventDefault();
+            pendingX = e.clientX;
+            pendingY = e.clientY;
+
+            if (!marqueeRaf) marqueeRaf = requestAnimationFrame(() => {
+
+                marqueeRaf = 0;
+                if (dragging && cand) paintSelection(pendingX, pendingY);
+
+            });
+
+        }
+
+        function onUp(e) {
+
+            if (!cand || e.pointerId !== cand.pointerId) return;
+
+            if (dragging && marqueeRaf) {
+
+                cancelAnimationFrame(marqueeRaf);
+                marqueeRaf = 0;
+                paintSelection(pendingX, pendingY);
+
+            }
+
+            document.body.classList.remove('is-marquee-selecting-layers');
+            stop();
+
+        }
+
+        panel.addEventListener('pointerdown', (e) => {
+
+            if (e.button !== 0 || e.target.closest('.panel-header-flex, .layers-toolbar, .layer-item, .custom-scroll-thumb')) return;
+
+            e.stopPropagation();
+
+            cand = {
+                startX: e.clientX,
+                startY: e.clientY,
+                pointerId: e.pointerId
+            };
+
+            window.addEventListener('pointermove', onMove, { passive: false });
+            window.addEventListener('pointerup', onUp);
+            window.addEventListener('pointercancel', onUp);
+
+        });
+
+    };
+
+})();
+
 
 // ============================================================================
-// Appearance panel (Fill / Stroke / Weight)
+// Paint Panel (Fill / Stroke / Weight)
 // ----------------------------------------------------------------------------
 // The single place layer paint is edited, Illustrator-style: every control acts on
 // every vector shape in the panel selection (selectedLayerIndex -- which the canvas
 // tools mirror into), or on the DRAWING DEFAULTS used by the Shape/Pen tools when
-// nothing is selected. Markup is static in index.html (#appearancePanel); all
-// behavior lives here. See docs/appearance-panel.md.
+// nothing is selected. Markup is static in index.html (#paintPanel); all
+// behavior lives here. See docs/paint-panel.md.
 // ============================================================================
 
 const AP_PRESET_COLORS = ['#000000', '#FF0000', '#00FF00', '#0000FF', '#FFFFFF', '#FFFF00', '#00FFFF', '#FF00FF'];
 
 const apEls = {
-    panel: $('appearancePanel'),
-    rows: $('appearanceRows'),
+    panel: $('paintPanel'),
+    rows: $('paintRows'),
     fill: { swatch: $('apFillSwatch'), none: $('apFillNone'), hex: $('apFillHex'), presets: $('apFillPresets') },
     stroke: { swatch: $('apStrokeSwatch'), none: $('apStrokeNone'), hex: $('apStrokeHex'), presets: $('apStrokePresets') },
     weightMount: $('apWeightMount')
@@ -1415,7 +1624,7 @@ const apTargets = () => {
 
         const s = globalOptimizedSvg.querySelector(`[data-pf-index="${idx}"]`);
 
-        if (s && !isRasterLayerShape(s)) shapes.push(s);
+        if (s && !lockedLayers.has(String(idx)) && !isRasterLayerShape(s)) shapes.push(s);
 
     });
 
@@ -1763,7 +1972,7 @@ const apOpenPicker = (attrKey) => {
 
 };
 
-window.appearanceOpenPicker = apOpenPicker;
+window.paintOpenPicker = apOpenPicker;
 
 
 
@@ -2015,7 +2224,7 @@ const apPaintRows = () => {
 
 };
 
-const refreshAppearancePanel = () => {
+const refreshPaintPanel = () => {
 
     if (!apEls.panel) return;
 
@@ -2025,7 +2234,7 @@ const refreshAppearancePanel = () => {
 
 };
 
-window.refreshAppearancePanel = refreshAppearancePanel;
+window.refreshPaintPanel = refreshPaintPanel;
 
 // The Shape/Pen tools stamp these onto every new shape ('auto' weight = the
 // artboard-relative default from js/shape-tools.js).
@@ -2122,7 +2331,7 @@ const apToggleNone = (attrKey) => {
 
     if (apEls.weightMount) apEls.weightMount.appendChild(apMakeWeightField());
 
-    refreshAppearancePanel();
+    refreshPaintPanel();
 
 })();
 

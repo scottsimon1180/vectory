@@ -1,0 +1,13 @@
+{
+  "name": "SVG Editor",
+  "short_name": "SVG Editor",
+  "description": "Import raw SVG, configure, optimize for HTML/web use, and export clean SVG or rasterized PNG.",
+  "start_url": "index.html",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay"],
+  "background_color": "#1a1a1e",
+  "theme_color": "#1a1a1e",
+  "icons": [
+    { "src": "images/logo-1024.png", "sizes": "1024x1024", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

@@ -38,7 +38,7 @@ let editSelectedIndex = null;   // Properties/transform-engine selection — dri
 let editSelectedIndices = new Set();
 
 // Drawing defaults: the fill / stroke / stroke-width new Shape- and Pen-tool shapes are
-// born with. Edited in the Appearance panel while nothing is selected (js/layers.js);
+// born with. Edited in the Paint Panel while nothing is selected (js/layers.js);
 // session-only, never persisted. A null width means "auto" -- the artboard-relative
 // default from js/shape-tools.js.
 let apDrawFill = 'none', apDrawStroke = '#000000', apDrawStrokeWidth = null;

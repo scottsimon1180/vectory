@@ -241,6 +241,16 @@ info
 
 /*
 =======================================
+large
+=======================================
+*/
+
+	<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="1.6"><g><g><g><g><g><rect x="8.874" y="8.874" width="6.25" height="6.25" fill="currentColor" stroke="none" stroke-width="1.6484"/><g transform="translate(-8 -8)"><g stroke="#000000" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"><path d="M8.056 8.056L4.21 4.21" fill="none" transform="translate(7, 7)" stroke-width="1.6484" stroke="currentColor"/><polyline points="4.21 8.606 4.21 4.21 8.606 4.21" fill="none" stroke="currentColor" stroke-width="1.6484" transform="translate(7, 7)"/><path d="M31.944 8.056L35.79 4.21" fill="none" transform="translate(-7, 7)" stroke-width="1.6484" stroke="currentColor"/><polyline points="31.394 4.21 35.79 4.21 35.79 8.606" fill="none" stroke="currentColor" stroke-width="1.6484" transform="translate(-7, 7)"/><path d="M8.056 31.944L4.21 35.79" fill="none" transform="translate(7, -7)" stroke="currentColor" stroke-width="1.6484"/><polyline points="8.606 35.79 4.21 35.79 4.21 31.394" fill="none" stroke="currentColor" stroke-width="1.6484" transform="translate(7, -7)"/><path d="M31.944 31.944L35.79 35.79" fill="none" transform="translate(-7, -7)" stroke-width="1.6484" stroke="currentColor"/><polyline points="35.79 31.394 35.79 35.79 31.394 35.79" fill="none" stroke="currentColor" stroke-width="1.6484" transform="translate(-7, -7)"/></g></g></g></g></g></g></g></svg>
+
+
+
+/*
+=======================================
 layers-duplicate
 =======================================
 */
@@ -255,7 +265,7 @@ layers-lock
 =======================================
 */
 
-	<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" x="0px" y="0px" viewBox="0 0 24 24" xml:space="preserve"><g><g><g><g><g id="Layer_4"><path d="M8.18 11.288C8.18 11.288 8.165 10.536 8.165 8.701C8.165 6.587 9.886 4.866 12 4.866S15.835 6.587 15.835 8.701L15.792 11.288L14.717 11.267L14.76 8.693C14.76 7.181 13.52 5.941 12 5.941C10.48 5.941 9.24 7.181 9.24 8.701C9.24 10.507 9.255 11.252 9.255 11.26L8.18 11.288Z" fill="currentColor"/></g><g id="Layer_7"><g><g><path d="M15.584 10.614H8.416C7.628 10.614 6.982 11.26 6.982 12.048V17.739C6.982 18.527 7.628 19.172 8.416 19.172H15.584C16.372 19.172 17.018 18.527 17.018 17.739V12.048C17.018 11.252 16.372 10.614 15.584 10.614ZM12.537 15.639V17.008C12.537 17.302 12.294 17.546 12 17.546S11.463 17.302 11.463 17.008V15.639C11.14 15.452 10.925 15.108 10.925 14.714C10.925 14.119 11.405 13.639 12 13.639S13.075 14.119 13.075 14.714C13.075 15.108 12.86 15.452 12.537 15.639Z" fill="currentColor"/></g></g></g></g><rect x="1.635" y="1.585" width="21" height="21" fill="none" stroke="currentColor" stroke-width="0.5" transform="translate(-0.135, -0.085)"/></g></g></g></svg>
+	<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" x="0px" y="0px" viewBox="0 0 24 24" xml:space="preserve"><g><g><g><g><g id="Layer_4"><path d="M8.18 11.288C8.18 11.288 8.165 10.536 8.165 8.701C8.165 6.587 9.886 4.866 12 4.866S15.835 6.587 15.835 8.701L15.792 11.288L14.717 11.267L14.76 8.693C14.76 7.181 13.52 5.941 12 5.941C10.48 5.941 9.24 7.181 9.24 8.701C9.24 10.507 9.255 11.252 9.255 11.26L8.18 11.288Z" fill="currentColor"/></g><g id="Layer_7"><g><g><path d="M15.584 10.614H8.416C7.628 10.614 6.982 11.26 6.982 12.048V17.739C6.982 18.527 7.628 19.172 8.416 19.172H15.584C16.372 19.172 17.018 18.527 17.018 17.739V12.048C17.018 11.252 16.372 10.614 15.584 10.614ZM12.537 15.639V17.008C12.537 17.302 12.294 17.546 12 17.546S11.463 17.302 11.463 17.008V15.639C11.14 15.452 10.925 15.108 10.925 14.714C10.925 14.119 11.405 13.639 12 13.639S13.075 14.119 13.075 14.714C13.075 15.108 12.86 15.452 12.537 15.639Z" fill="currentColor"/></g></g></g></g><rect x="1.635" y="1.585" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1" transform="translate(-0.135, -0.085)"/></g></g></g></svg>
 
 
 
@@ -486,6 +496,16 @@ slider-vertical
 */
 
 	<svg xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" viewBox="0 0 24 24"><g id="Layer_5"><g><rect x="2" y="11.04" transform="matrix(2.862696e-07 1 -1 2.862696e-07 24 -4.594561e-06)" width="20" height="1.92" fill="currentColor" stroke="none"/><rect x="10.08" y="3.02" transform="matrix(2.862693e-07 1 -1 2.862693e-07 19.9502 -4.0498)" width="3.84" height="9.86" fill="currentColor" stroke="none"/></g></g></svg>
+
+
+
+/*
+=======================================
+small
+=======================================
+*/
+
+	<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="1.6"><g><g><g><g><g><g><rect x="0.649" y="0.649" width="22.7" height="22.7" fill="none" stroke="currentColor" stroke-width="1.0988"/><g transform="translate(-8 -8)"><g stroke="#000000" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"><path d="M9.24 9.24L5.394 5.394" fill="none" transform="matrix(-1, 0, 0, -1, 21, 21)" stroke-width="1.0988" stroke="currentColor"/><polyline points="5.394 9.79 5.394 5.394 9.79 5.394" fill="none" stroke="currentColor" stroke-width="1.0988" transform="matrix(-1, 0, 0, -1, 21, 21)"/><path d="M30.76 9.24L34.606 5.394" fill="none" transform="matrix(-1, 0, 0, -1, 59, 21)" stroke-width="1.0988" stroke="currentColor"/><polyline points="30.21 5.394 34.606 5.394 34.606 9.79" fill="none" stroke="currentColor" stroke-width="1.0988" transform="matrix(-1, 0, 0, -1, 59, 21)"/><path d="M9.24 30.76L5.394 34.606" fill="none" transform="matrix(-1, 0, 0, -1, 21, 59)" stroke="currentColor" stroke-width="1.0988"/><polyline points="9.79 34.606 5.394 34.606 5.394 30.21" fill="none" stroke="currentColor" stroke-width="1.0988" transform="matrix(-1, 0, 0, -1, 21, 59)"/><path d="M30.76 30.76L34.606 34.606" fill="none" transform="matrix(-1, 0, 0, -1, 59, 59)" stroke-width="1.0988" stroke="currentColor"/><polyline points="34.606 30.21 34.606 34.606 30.21 34.606" fill="none" stroke="currentColor" stroke-width="1.0988" transform="matrix(-1, 0, 0, -1, 59, 59)" id="last"/></g></g></g></g></g></g></g></g></svg>
 
 
 

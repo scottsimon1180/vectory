@@ -301,6 +301,7 @@
         artboardOverlay.addEventListener('pointerdown', (e) => {
             if (window.isGuideDragActive?.()) return;
             if (!abActive || e.button !== 0 || abDrag) return;
+            if (window.isHandToolTemporaryPan?.()) return;      // Space / middle-drag pan owns the press
             const h = e.target && e.target.closest ? e.target.closest('.artboard-handle') : null;
             if (h) {
                 const key = h.getAttribute('data-ab-handle');
@@ -335,15 +336,13 @@
     };
 
     window.toggleArtboardTool = (btn) => {
-        if (abActive) { abDeactivate(); return; }
+        if (abActive) return;
         window.deactivateSelectionTool?.();
         window.deactivateDirectSelectionTool?.();
         window.deactivateHandTool?.();
         window.deactivateShapeTool?.();
         window.deactivatePenTool?.();
         window.deactivateScissorsTool?.();
-        window.clearLayerSelection?.();
-        window.clearEditSelection?.();
         abActive = true;
         (btn || $('btnArtboardTool'))?.classList.add('active');
         previewArea.classList.add('artboard-active');
@@ -459,9 +458,8 @@
             window.toggleArtboardTool();
             return;
         }
-        if (e.key !== 'Escape' || !abActive) return;
+        if (e.key !== 'Escape' || !abActive || isTextInputFocused()) return;
         if (abDrag) { e.preventDefault(); abCancelDrag(); return; }
-        if (!isEyedropperMode) abDeactivate();
     });
 
 })();

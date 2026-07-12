@@ -28,7 +28,7 @@ const resetUI = () => {
 
     syncDeleteLayerBtn();
 
-    window.refreshAppearancePanel?.();
+    window.refreshPaintPanel?.();
 
     window.refreshLayerThumbnails?.();
 

@@ -1,13 +1,9 @@
 /* fileName: logo-load.js */
-/* Clicking the header logo (.app-logo, which displays
-   images/SVG Shapes Logo MASTER.svg) loads images/SVG Shapes Logo RAW.svg
-   into the editor via the normal processSVG() import pipeline. Served over
-   http/https the RAW asset is fetched live; opened directly from file://
-   (where fetching a local file is blocked) the embedded copy below --
-   generated from images/SVG Shapes Logo RAW.svg -- is used as a fallback. */
+/* Clicking the header logo (.app-logo) or a quick SVG preset loads that SVG
+   into the editor via the normal processSVG() import pipeline. Each preset's
+   visible images/*.svg file is also its single import source. */
 (() => {
   const logoEl = document.querySelector('.app-logo');
-  if (!logoEl) return;
 
   const LOGO_SVG_FALLBACK = `
 <?xml version="1.0" encoding="UTF-8"?>
@@ -32,18 +28,37 @@
   </g>
 </svg>`;
 
-  const loadLogo = async () => {
+  const loadSvgAsset = async (path, fallback = '') => {
     let src = '';
-    if (location.protocol !== 'file:') {
-      try { const r = await fetch('images/SVG%20Shapes%20Logo%20RAW.svg'); if (r.ok) src = await r.text(); } catch (e) {}
+    try { const r = await fetch(path); if (r.ok) src = await r.text(); } catch (e) {}
+    if (!src.trim() && location.protocol === 'file:') {
+      src = await new Promise((resolve) => {
+        const request = new XMLHttpRequest();
+        request.open('GET', path, true);
+        request.onload = () => resolve(request.responseText || '');
+        request.onerror = () => resolve('');
+        request.send();
+      });
     }
-    if (!src.trim()) src = LOGO_SVG_FALLBACK;
+    if (!src.trim()) src = fallback;
+    if (!src.trim()) return;
     inputStr.value = src;
     window.processSVG();
   };
 
-  logoEl.addEventListener('click', loadLogo);
-  logoEl.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); loadLogo(); }
+  if (logoEl) {
+    const loadLogo = () => loadSvgAsset('images/SVG%20Shapes%20Logo%20RAW.svg', LOGO_SVG_FALLBACK);
+    logoEl.addEventListener('click', loadLogo);
+    logoEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); loadLogo(); }
+    });
+  }
+
+  document.querySelectorAll('.quick-svg-preset').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const img = btn.querySelector('img[src]');
+      const asset = img?.getAttribute('src') || '';
+      loadSvgAsset(asset);
+    });
   });
 })();

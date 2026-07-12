@@ -92,6 +92,19 @@ const isTextInputFocused = () => {
     return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
 };
 
+// Shift-constrain a drag vector to the nearest 45-degree direction (Illustrator-style): the
+// vector is projected onto the closest of the 8 compass rays. Shared by the Selection tool
+// (constrained move), Direct Selection (constrained anchor drag), Pen (constrained anchor
+// placement), and the Line Segment tool. Returns a new {x, y}; a zero vector passes through.
+const constrainVec45 = (dx, dy) => {
+    if (dx === 0 && dy === 0) return { x: 0, y: 0 };
+    const step = Math.PI / 4;
+    const ang = Math.round(Math.atan2(dy, dx) / step) * step;
+    const ux = Math.cos(ang), uy = Math.sin(ang);
+    const len = dx * ux + dy * uy;
+    return { x: ux * len, y: uy * len };
+};
+
 const SVG_VECTOR_LAYER_SHAPE_SELECTOR = 'path, circle, rect, polygon, polyline, ellipse, line';
 const SVG_LAYER_SHAPE_SELECTOR = `${SVG_VECTOR_LAYER_SHAPE_SELECTOR}, image`;
 const XLINK_NS = 'http://www.w3.org/1999/xlink';

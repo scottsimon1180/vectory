@@ -1,0 +1,1552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Opsin - Image Studio | Color Picker</title>
+<style>
+  :root {
+    --bg: #1a1a1e;
+    --bg-secondary: #242428;
+    --bg-hover: #35353d;
+    --surface: #2a2a30;
+    --surface-raised: #323238; 
+    --border: rgba(255,255,255,0.1);
+    --border-strong: rgba(255,255,255,0.14); 
+    --text: #f2f2f7;
+    --text-secondary: #8e8e93;
+    --text-tertiary: #636366;
+    --accent: #007aff;
+    --accent-hover: #0a84ff;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+
+  /* Core App Feel - Disable Global Selection */
+  body, html {
+    margin: 0; padding: 0;
+    font-family: var(--font);
+    background: transparent;
+    overflow: hidden;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+    touch-action: none;
+  }
+
+  /* Global active dragging state for the pointer hand */
+  body.is-dragging, body.is-dragging * {
+    cursor: pointer !important; 
+  }
+
+  /* Eyedropper Override States — cursor injected by JS */
+  body.is-eyedropper-active .cp-modal {
+    pointer-events: none !important;
+  }
+  body.is-eyedropper-active #cpEyedropperBtn {
+    pointer-events: auto !important;
+  }
+
+  input[type="text"], input[type="number"] {
+    -webkit-user-select: text;
+    -moz-user-select: text;
+    -ms-user-select: text;
+    user-select: text;
+    caret-color: transparent; 
+  }
+
+  /* App-like "Replace on Type" state */
+  .app-input-grey { color: var(--text-tertiary) !important; }
+  .app-input-grey::selection { background: transparent; color: var(--text-tertiary); }
+
+  button.standard, button.primary {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px; 
+    border-radius: 10px; padding: 10px 18px; 
+    font-size: 13px; font-weight: 500; letter-spacing: -0.01em; 
+    cursor: default; transition: 0.15s ease-out; box-sizing: border-box;
+  }
+  button.standard { background: rgba(255, 255, 255, 0.08); color: var(--text); border: none; }
+  button.standard:hover { background: rgba(255, 255, 255, 0.12); }
+  button.primary { background: var(--accent); color: #fff; border: none; }
+  button.primary:hover { background: var(--accent-hover); }
+  button.standard:active, button.primary:active { transform: scale(0.97); opacity: 0.7; }
+
+  .cp-modal-overlay {
+    position: fixed; inset: 0; background: transparent;
+    z-index: 9999; display: none; align-items: center; justify-content: center;
+    pointer-events: none; /* Allows pointer pass-through */
+  }
+  .cp-modal {
+    background: var(--surface); border: 1px solid var(--border-strong); border-radius: 14px;
+    width: 560px; pointer-events: auto; /* Ensures modal remains clickable */
+    box-shadow: 0 24px 48px rgba(0,0,0,0.4); display: flex; flex-direction: column;
+    overflow: hidden; animation: cpModalIn 0.2s ease-out;
+  }
+  @keyframes cpModalIn  { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1);    } }
+  @keyframes cpModalOut { from { opacity: 1; transform: scale(1);    } to { opacity: 0; transform: scale(0.95); } }
+  
+  .cp-modal-header {
+    padding: 7px 16px; border-bottom: 1px solid var(--border); display: flex;
+    justify-content: space-between; align-items: center; background: var(--bg-secondary);
+    cursor: grab;
+  }
+  .cp-modal-header:active {
+    cursor: grabbing;
+  }
+  .cp-modal-title { font-size: 14px; font-weight: 600; color: var(--text); margin: 0; cursor: inherit; }
+  .cp-modal-close { cursor: default; color: var(--text-secondary); font-size: 18px; line-height: 1; padding: 0 4px; }
+  .cp-modal-close:hover { color: var(--text); }
+  
+  .cp-modal-body { display: flex; padding: 14px 20px; gap: 24px; }
+
+  .cp-left { display: flex; flex-direction: column; width: 234px; }
+  .cp-canvas-row { display: flex; gap: 12px; margin-top: 12px; }
+
+  /* CSS Accelerated Backgrounds replacing Canvas */
+  .cp-track-wrap {
+    position: relative; width: 12px; height: 210px; border-radius: 6px;
+    cursor: default; flex-shrink: 0;
+  }
+  .cp-track-bg { 
+    width: 100%; height: 100%; position: absolute; inset: 0; pointer-events: none; 
+    border-radius: inherit; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.2); 
+  }
+  .cp-track-bg.mode-spectrum { background: linear-gradient(to bottom, #f00 0%, #ff0 16.66%, #0f0 33.33%, #0ff 50%, #00f 66.66%, #f0f 83.33%, #f00 100%); }
+  .cp-track-cursor {
+    position: absolute; left: 50%; width: 16px; height: 16px; border-radius: 50%; background: #fff;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.4), 0 0 0 1px rgba(0,0,0,0.08); 
+    transform: translate(-50%, -50%); pointer-events: none;
+  }
+
+  .cp-main-canvas-wrap {
+      position: relative; width: 210px; height: 210px; border-radius: 4px;
+      overflow: hidden; cursor: default; flex-shrink: 0; transition: border-radius 0.2s;
+  }
+  .cp-main-bg { width: 100%; height: 100%; position: absolute; inset: 0; pointer-events: none; border-radius: inherit; }
+  .cp-main-bg.mode-wheel {
+      background: radial-gradient(circle closest-side, #ffffff 0%, transparent 100%), conic-gradient(red 0deg, yellow 60deg, lime 120deg, cyan 180deg, blue 240deg, magenta 300deg, red 360deg);
+  }
+  .cp-main-darken { position: absolute; inset: 0; background: #000; pointer-events: none; border-radius: inherit; }
+  
+  .cp-cursor {
+    position: absolute; width: 12px; height: 12px; border-radius: 50%;
+    border: 2px solid #fff; box-shadow: 0 0 2px rgba(0,0,0,0.5), inset 0 0 2px rgba(0,0,0,0.5);
+    transform: translate(-50%, -50%); pointer-events: none;
+  }
+
+  .cp-presets-grid {
+    display: grid; grid-template-columns: repeat(12, 1fr); gap: 3px; margin-top: 14px; width: 100%;
+  }
+  .cp-preset-swatch {
+    width: 100%; aspect-ratio: 1; border-radius: 3px; cursor: default;
+    box-shadow: inset 0 0 0 1px rgba(0,0,0,0.2); transition: 0.1s;
+  }
+  .cp-preset-swatch:hover { box-shadow: inset 0 0 0 1px rgba(0,0,0,0.4), 0 0 0 1px var(--text-secondary); transform: scale(1.15); z-index: 2; position: relative; }
+
+  .cp-right { flex: 1; display: flex; flex-direction: column; justify-content: space-between; }
+  .cp-slider-group { display: flex; flex-direction: column; }
+  
+  .cp-segment-bar { display: flex; background: var(--bg); border-radius: 6px; padding: 2px; border: 1px solid var(--border-strong); }
+  .cp-segment-btn {
+    flex: 1; text-align: center; padding: 4px 0; font-size: 11px; font-weight: 600; 
+    color: var(--text-secondary); cursor: default; border-radius: 4px; transition: 0.15s;
+  }
+  .cp-segment-btn.active { background: var(--surface-raised); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+
+  /* Header Solid/Gradient switch — centered, compact so the header keeps its height */
+  .cp-header-side { flex: 1; display: flex; align-items: center; min-width: 0; }
+  .cp-header-side-end { justify-content: flex-end; }
+  .cp-fill-mode-bar { width: 150px; flex: none; }
+  .cp-fill-mode-bar .cp-segment-btn { padding: 3px 0; }
+
+  /* Left column top region — holds the Spectrum/Wheel tabs + wheel canvas, and the
+     absolutely-overlaid gradient editor. Its in-flow height (tabs + canvas) never
+     changes, so the presets grid below stays anchored in either fill mode. */
+  .cp-left-top { position: relative; }
+
+  /* ===== Gradient Editor Panel (absolute overlay over the tabs + wheel region) ===== */
+  .cp-grad-panel {
+    position: absolute; inset: 0; box-sizing: border-box;
+    display: none; flex-direction: column;
+    background: var(--bg); border: 1px solid var(--border-strong); border-radius: 12px; padding: 12px;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.28);
+  }
+
+  .cp-grad-panel-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; flex-shrink: 0; }
+  .cp-grad-panel-title { font-size: 12px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.8px; }
+  .cp-grad-hdr-btns { display: flex; gap: 5px; }
+  .cp-grad-type-toggle {
+    width: 24px; height: 24px; border-radius: 7px; padding: 0; background: var(--surface-raised); border: 1px solid var(--border-strong);
+    display: flex; align-items: center; justify-content: center; color: var(--text-secondary); cursor: default; transition: 0.15s;
+  }
+  .cp-grad-type-toggle:hover { background: var(--bg-hover); color: var(--text); border-color: var(--text-tertiary); }
+  .cp-grad-type-toggle:active { transform: scale(0.94); }
+  .cp-grad-type-toggle svg { width: 16px; height: 16px; }
+  .cp-grad-type-toggle .cp-angle-dial { width: 16px; height: 16px; color: var(--accent); }
+  .cp-grad-type-toggle .cp-angle-dial svg { width: 16px; height: 16px; }
+  /* Dial ring matches the plus icon (grey); needle/pivot stay accent blue */
+  .cp-grad-type-toggle .cp-deg-dial-track { color: var(--text-secondary); }
+  .cp-angle-dial { width: 16px; height: 16px; flex-shrink: 0; transform-origin: 50% 50%; color: var(--accent); }
+  .cp-angle-dial svg { width: 16px; height: 16px; display: block; }
+
+  /* Live gradient preview strip */
+  .cp-grad-preview {
+    height: 22px; border-radius: 7px; flex-shrink: 0; margin-bottom: 9px; overflow: hidden; position: relative;
+    background-image: linear-gradient(45deg,#3a3a40 25%,transparent 25%), linear-gradient(-45deg,#3a3a40 25%,transparent 25%), linear-gradient(45deg,transparent 75%,#3a3a40 75%), linear-gradient(-45deg,transparent 75%,#3a3a40 75%);
+    background-size: 10px 10px; background-position: 0 0, 0 5px, 5px -5px, -5px 0; background-color: #2b2b30;
+    box-shadow: inset 0 0 0 1px rgba(0,0,0,0.35);
+  }
+  .cp-grad-preview-fill { position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 1px 0 rgba(255,255,255,0.12); }
+
+  /* Color stops header */
+  .cp-grad-stops-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; flex-shrink: 0; }
+  .cp-grad-stops-titlewrap { display: flex; align-items: center; gap: 6px; }
+  .cp-grad-stops-title { font-size: 10px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.6px; }
+  .cp-grad-stops-count { min-width: 16px; height: 15px; padding: 0 5px; border-radius: 8px; background: rgba(255,255,255,0.07); color: var(--text-secondary); font-size: 9px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; }
+  .cp-grad-stops-actions { display: flex; gap: 5px; }
+  .cp-grad-btn { width: 24px; height: 24px; border-radius: 7px; padding: 0; background: var(--surface-raised); border: 1px solid var(--border-strong); display: flex; align-items: center; justify-content: center; color: var(--text-secondary); cursor: default; transition: 0.15s; }
+  .cp-grad-btn svg { width: 15px; height: 15px; }
+  .cp-grad-btn:hover { color: var(--text); background: var(--bg-hover); border-color: var(--text-tertiary); }
+  .cp-grad-btn:active { transform: scale(0.92); }
+  .cp-grad-btn-danger:hover { color: #ff453a; background: rgba(255,69,58,0.14); border-color: rgba(255,69,58,0.4); }
+  .cp-grad-btn:disabled { opacity: 0.35; pointer-events: none; }
+
+  /* Stops list */
+  .cp-grad-colors-list { display: flex; flex-direction: column; gap: 5px; overflow-y: auto; flex: 1; min-height: 0; padding-right: 4px; margin-right: -4px; position: relative; }
+  .cp-grad-colors-list::-webkit-scrollbar { width: 4px; }
+  .cp-grad-colors-list::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
+  .cp-grad-colors-list::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }
+
+  .cp-grad-row { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 8px; background: var(--surface-raised); border: 1px solid var(--border); cursor: default; transition: background 0.15s, border-color 0.15s, box-shadow 0.15s; position: relative; box-sizing: border-box; }
+  .cp-grad-row:hover { background: var(--bg-hover); border-color: var(--border-strong); }
+  .cp-grad-row.active { background: rgba(0,122,255,0.16); border-color: var(--accent); box-shadow: 0 0 0 1px rgba(0,122,255,0.35); }
+  .cp-grad-row.is-dragging { z-index: 100; opacity: 0.97; box-shadow: 0 10px 28px rgba(0,0,0,0.55); border-color: var(--accent); }
+  .cp-grad-row-placeholder { width: 100%; border-radius: 8px; background: rgba(0,122,255,0.08); border: 1px dashed var(--accent); box-sizing: border-box; }
+
+  /* Grab handle — 3 horizontal bars, anchored on the far right */
+  .cp-grad-drag { width: 16px; height: 20px; display: flex; align-items: center; justify-content: center; color: var(--text-tertiary); cursor: grab; flex-shrink: 0; transition: color 0.15s; }
+  .cp-grad-row:hover .cp-grad-drag { color: var(--text-secondary); }
+  .cp-grad-drag:active { cursor: grabbing; }
+  .cp-grad-drag svg { width: 14px; height: 14px; pointer-events: none; fill: currentColor; }
+
+  .cp-grad-swatch-wrap {
+      width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0; pointer-events: none;
+      background-image: linear-gradient(45deg, #333 25%, transparent 25%), linear-gradient(-45deg, #333 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #333 75%), linear-gradient(-45deg, transparent 75%, #333 75%);
+      background-size: 8px 8px; background-position: 0 0, 0 4px, 4px -4px, -4px 0px; background-color: #222;
+      box-shadow: 0 0 0 1px rgba(0,0,0,0.4), inset 0 0 0 1px rgba(255,255,255,0.08); overflow: hidden;
+  }
+  .cp-grad-swatch { width: 100%; height: 100%; }
+  .cp-grad-row.active .cp-grad-swatch-wrap { box-shadow: 0 0 0 1px var(--accent), inset 0 0 0 1px rgba(255,255,255,0.12); }
+
+  .cp-grad-label { flex: 1; font-size: 11px; font-weight: 600; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; text-transform: uppercase; letter-spacing: 0.3px; min-width: 0; }
+  .cp-grad-row:hover .cp-grad-label, .cp-grad-row.active .cp-grad-label { color: var(--text); }
+
+  /* ===== Angle Presets Overlay ===== */
+  .cp-deg-overlay { position: absolute; inset: 0; background: var(--bg-secondary); z-index: 10; display: none; flex-direction: column; border-radius: 12px; box-shadow: inset 0 0 0 1px var(--border-strong); }
+  .cp-deg-sheet { display: flex; flex-direction: column; padding: 12px; height: 100%; box-sizing: border-box; overflow-y: auto; }
+  .cp-deg-title { font-size: 11px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; flex-shrink: 0; }
+  .cp-deg-main { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; flex-shrink: 0; }
+  .cp-deg-dial-wrap { width: 56px; height: 56px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle at 50% 35%, rgba(255,255,255,0.06), transparent 70%); box-shadow: inset 0 0 0 1px var(--border); cursor: default; touch-action: none; user-select: none; -webkit-user-select: none; }
+  .cp-deg-dial-wrap:hover { box-shadow: inset 0 0 0 1px var(--text-tertiary); }
+  .cp-deg-dial-wrap.is-grabbing { cursor: pointer; }
+  .cp-deg-dial { width: 46px; height: 46px; transform-origin: 50% 50%; display: flex; align-items: center; justify-content: center; color: var(--accent); }
+  .cp-deg-dial svg { width: 46px; height: 46px; display: block; }
+  .cp-deg-dial-track { color: var(--border-strong); }
+  .cp-deg-input { flex: 1; min-width: 0; padding: 9px 6px; font-size: 16px; font-weight: 800; text-align: center; border-radius: 9px; border: 1px solid var(--border-strong); -webkit-appearance: none; outline: none; background: var(--surface-raised); color: var(--text); font-variant-numeric: tabular-nums; box-sizing: border-box; }
+  .cp-deg-input:focus { border-color: var(--accent); cursor: text; }
+  .preset-row { display: flex; justify-content: center; gap: 5px; width: 100%; flex-shrink: 0; }
+  .preset-row + .preset-row { margin-top: 5px; }
+  .preset-btn { height: 28px; padding: 0 3px; border: 1px solid var(--border-strong); border-radius: 7px; font-weight: 700; font-size: 11px; background: var(--surface-raised); color: var(--text-secondary); cursor: default; display: flex; align-items: center; justify-content: center; gap: 5px; flex: 1; transition: 0.15s; }
+  .preset-btn:hover { background: var(--bg-hover); color: var(--text); border-color: var(--text-tertiary); }
+  .preset-btn:active { transform: scale(0.95); }
+  .preset-btn svg { width: 13px; height: 13px; fill: currentColor; flex-shrink: 0; }
+  .cp-deg-actions { margin-top: auto; display: flex; gap: 8px; flex-shrink: 0; }
+  .cp-deg-cancel { flex: 1; height: 34px; border-radius: 9px; background: var(--surface-raised); color: var(--text-secondary); border: 1px solid var(--border-strong); font-weight: 600; font-size: 13px; cursor: default; transition: 0.15s; }
+  .cp-deg-cancel:hover { background: var(--bg-hover); color: var(--text); border-color: var(--text-tertiary); }
+  .cp-deg-cancel:active { transform: scale(0.98); opacity: 0.85; }
+  .cp-deg-done { flex: 1; height: 34px; border-radius: 9px; background: var(--accent); color: #fff; border: none; font-weight: 600; font-size: 13px; cursor: default; transition: 0.15s; }
+  .cp-deg-done:hover { background: var(--accent-hover); }
+  .cp-deg-done:active { transform: scale(0.98); opacity: 0.85; }
+
+  .cp-sliders-wrap { display: flex; flex-direction: column; gap: 8px; }
+  .cp-slider-row { display: flex; align-items: center; gap: 8px; }
+  .cp-slider-lbl { width: 14px; font-size: 11px; font-weight: 600; color: var(--text-secondary); cursor: default; }
+  
+  .cp-divider { border: none; border-top: 1px solid var(--border-strong); margin: 0; width: 100%; }
+  .cp-section-label { font-size: 11px; font-weight: 700; color: var(--text-secondary); margin-bottom: 6px; letter-spacing: 0.5px; cursor: default; }
+
+  /* GPU Accelerated CSS Variables for Sliders */
+  .cp-slider-inp { 
+    flex: 1; -webkit-appearance: none; appearance: none; height: 10px; border-radius: 5px; 
+    outline: none; margin: 0; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.2); cursor: default;
+    background: var(--slider-bg, #000); 
+  }
+  .cp-slider-inp::-webkit-slider-thumb { 
+    -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; 
+    background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.4), 0 0 0 1px rgba(0,0,0,0.08); 
+    cursor: default;
+  }
+  
+  .cp-num-inp { 
+    width: 28px; background: var(--surface-raised); border: 1px solid var(--border-strong); 
+    border-radius: 4px; color: var(--text); font-size: 11px; text-align: center; padding: 4px 2px; 
+    font-family: monospace; outline: none; flex-shrink: 0; cursor: default;
+  }
+  .cp-num-inp:focus { cursor: text; border-color: var(--accent); }
+  .cp-num-inp::-webkit-outer-spin-button, .cp-num-inp::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+  /* Footer Layout */
+  .cp-modal-footer { 
+    padding: 12px 16px; border-top: 1px solid var(--border); 
+    display: flex; justify-content: space-between; align-items: center; 
+    background: var(--bg-secondary); 
+  }
+  .cp-footer-left { display: flex; gap: 8px; align-items: center; }
+  .cp-swatch-single { width: 44px; height: 44px; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--border-strong); background: #000; flex-shrink: 0; }
+  
+  .cp-hex-modal-wrap { 
+    width: 68px; height: 32px; display: flex; align-items: center; background: var(--surface-raised); 
+    border: 1px solid var(--border-strong); border-radius: 4px; padding: 4px 6px; gap: 2px; 
+    cursor: text; transition: 0.15s; box-sizing: border-box; 
+  }
+  .cp-hex-modal-wrap:focus-within { border-color: var(--accent); }
+  .cp-hex-hash { color: var(--text-tertiary); font-weight: 600; font-size: 12px; cursor: text; }
+  .cp-hex-modal-inp { 
+    background: transparent; border: none; color: var(--text); font-family: monospace; 
+    font-size: 12px; width: 100%; outline: none; text-transform: uppercase; padding: 0; 
+  }
+
+  body.is-ipad-os .cp-hex-modal-wrap { width: 72px; }
+  
+  .cp-eyedropper-btn {
+    width: 32px; height: 32px; background: var(--surface-raised); border: 1px solid var(--border-strong);
+    border-radius: 4px; display: flex; align-items: center; justify-content: center;
+    color: var(--text-secondary); cursor: default; transition: 0.15s; flex-shrink: 0; box-sizing: border-box;
+  }
+  .cp-eyedropper-btn:hover { background: var(--bg-hover); color: var(--text); border-color: var(--text-secondary); }
+  .cp-eyedropper-btn:active { transform: scale(0.95); }
+  .cp-eyedropper-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(0, 122, 255, 0.1); }
+
+  .cp-footer-center { display: flex; justify-content: center; align-items: center; flex: 1; margin: 0 16px; gap: 8px; }
+  
+  .cp-add-btn {
+    width: 18px; height: 18px; background: var(--surface-raised); border: 1px solid var(--border-strong);
+    border-radius: 3px; display: flex; align-items: center; justify-content: center;
+    color: var(--text-secondary); cursor: default; transition: 0.15s; flex-shrink: 0;
+  }
+  .cp-add-btn:hover { background: var(--bg-hover); color: var(--text); border-color: var(--text-secondary); }
+  .cp-add-btn:active { transform: scale(0.95); }
+
+  .cp-bank-grid { display: grid; grid-template-columns: repeat(6, 18px); grid-template-rows: repeat(2, 18px); gap: 4px; }
+  
+  .cp-bank-swatch { width: 100%; height: 100%; border-radius: 3px; transition: 0.1s; -webkit-touch-callout: none; }
+  .cp-bank-swatch.empty { position: relative; background-color: rgba(0,0,0,0.25); box-shadow: inset 0 1px 3px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(255,255,255,0.03); cursor: default; }
+  .cp-bank-swatch.empty::before { content: ""; position: absolute; top: 50%; left: 50%; width: 85%; height: 2px; background: rgba(255,69,58,0.72); border-radius: 0px; transform: translate(-50%, -50%) rotate(-45deg); pointer-events: none; }
+  .cp-bank-swatch.filled { box-shadow: inset 0 0 0 1px rgba(255,255,255,0.28), 0 0 0 1px rgba(0,0,0,0.28); cursor: default; }
+  .cp-bank-swatch.filled:hover { box-shadow: inset 0 0 0 1px rgba(0,0,0,0.4), 0 0 0 1px var(--text-secondary); transform: scale(1.15); z-index: 2; position: relative; }
+  .cp-footer-right { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+
+  /* Context Menu (Delete Popup) */
+  .cp-context-menu {
+    position: fixed; z-index: 10000; display: none; background: var(--surface-raised);
+    border: 1px solid var(--border-strong); border-radius: 8px; box-shadow: 0 8px 16px rgba(0,0,0,0.5);
+    padding: 4px; opacity: 0; transform: translateY(6px) scale(0.95); 
+    transition: opacity 0.15s cubic-bezier(0.16, 1, 0.3, 1), transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .cp-context-menu.active { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
+  .cp-context-action { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 6px; color: var(--text-secondary); cursor: default; transition: 0.15s ease-out; }
+  .cp-context-action:hover { background: rgba(255, 59, 48, 0.15); color: #ff3b30; }
+  .cp-context-action:active { transform: scale(0.92); }
+</style>
+</head>
+<body>
+
+  <div class="cp-context-menu" id="cpContextMenu">
+      <div class="cp-context-action" onclick="executeDelete()" title="Delete Swatch">
+          <svg width="20" height="20" viewBox="0 0 24 24"><use href="#icon-layer-delete"/></svg>
+      </div>
+  </div>
+
+  <div class="cp-modal-overlay" id="cpModalOverlay">
+    <div class="cp-modal" id="cpModalContainer">
+      <div class="cp-modal-header">
+        <div class="cp-header-side">
+          <h4 class="cp-modal-title">Color Picker</h4>
+        </div>
+        <div class="cp-segment-bar cp-fill-mode-bar" onpointerdown="event.stopPropagation()">
+          <div class="cp-segment-btn active" id="btnModeSolid" onclick="setFillMode('solid')">Solid</div>
+          <div class="cp-segment-btn" id="btnModeGradient" onclick="setFillMode('gradient')">Gradient</div>
+        </div>
+        <div class="cp-header-side cp-header-side-end">
+          <div class="cp-modal-close" onclick="closeCustomPicker()">×</div>
+        </div>
+      </div>
+      <div class="cp-modal-body">
+        
+        <div class="cp-left">
+          <div class="cp-left-top">
+            <div class="cp-segment-bar" id="solidLeftTabs">
+              <div class="cp-segment-btn" id="btnModeSpectrum" onclick="setPickerMode('spectrum')">Spectrum</div>
+              <div class="cp-segment-btn active" id="btnModeWheel" onclick="setPickerMode('wheel')">Wheel</div>
+            </div>
+
+            <div class="cp-canvas-row" id="cpCanvasRow">
+              <div class="cp-track-wrap" id="cpTrackWrap">
+                <div class="cp-track-bg mode-wheel" id="cpTrackArea"></div>
+                <div class="cp-track-cursor" id="cpTrackCursor"></div>
+              </div>
+
+              <div class="cp-main-canvas-wrap" id="cpMainWrap">
+                <div class="cp-main-bg mode-wheel" id="cpMainArea"></div>
+                <div class="cp-main-darken" id="cpMainDarken"></div>
+                <div class="cp-cursor" id="cpMainCursor"></div>
+              </div>
+            </div>
+
+            <div id="gradientEditorArea" class="cp-grad-panel">
+              <div class="cp-grad-panel-hdr">
+                <span class="cp-grad-panel-title">Gradient</span>
+                <div class="cp-grad-hdr-btns">
+                  <button class="cp-grad-type-toggle" id="tbGradAngle" title="Gradient Angle">
+                    <span class="cp-angle-dial" id="gradAngleRotator">
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle class="cp-deg-dial-track" cx="50" cy="50" r="40" fill="transparent" stroke="currentColor" stroke-width="8"/><line x1="50" y1="50" x2="50" y2="9" stroke="currentColor" stroke-width="11" stroke-linecap="round"/><circle cx="50" cy="50" r="10" fill="currentColor"/></svg>
+                    </span>
+                    <span id="gradAngleDisplay" style="display:none;">0&deg;</span>
+                  </button>
+                  <button class="cp-grad-type-toggle" id="tbGradType" title="Toggle Linear / Radial"></button>
+                </div>
+              </div>
+
+              <div class="cp-grad-preview">
+                <div class="cp-grad-preview-fill" id="gradPreviewBar"></div>
+              </div>
+
+              <div class="cp-grad-stops-hdr">
+                <div class="cp-grad-stops-titlewrap">
+                  <span class="cp-grad-stops-title">Color Stops</span>
+                  <span class="cp-grad-stops-count" id="gradStopCount">0</span>
+                </div>
+                <div class="cp-grad-stops-actions">
+                  <button class="cp-grad-btn cp-grad-btn-danger" id="btnGradTrash" aria-label="Delete Selected Color" title="Delete Selected Color">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
+                  </button>
+                  <button class="cp-grad-btn" id="btnGradPlus" aria-label="Add Color" title="Add Color">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+                  </button>
+                </div>
+              </div>
+
+              <div class="cp-grad-colors-list" id="gradColorsList"></div>
+
+              <!-- Inline Angle Presets Overlay -->
+              <div class="cp-deg-overlay" id="cpDegOverlay">
+                <div class="cp-deg-sheet">
+                  <div class="cp-deg-title">Gradient Angle</div>
+                  <div class="cp-deg-main">
+                    <div class="cp-deg-dial-wrap" id="degDialWrap">
+                      <div id="degBigRotator" class="cp-deg-dial">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+                          <circle class="cp-deg-dial-track" cx="50" cy="50" r="40" fill="transparent" stroke="currentColor" stroke-width="6"/>
+                          <line x1="50" y1="50" x2="50" y2="10" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+                          <circle cx="50" cy="50" r="6" fill="currentColor"/>
+                        </svg>
+                      </div>
+                    </div>
+                    <input id="degAngleInput" class="cp-deg-input" type="text" inputmode="numeric" value="0&deg;" aria-label="Angle in degrees">
+                  </div>
+
+                  <div class="preset-row">
+                    <button class="preset-btn" type="button" data-deg="0">0&deg;</button>
+                    <button class="preset-btn" type="button" data-deg="45">45&deg;</button>
+                    <button class="preset-btn" type="button" data-deg="90">90&deg;</button>
+                    <button class="preset-btn" type="button" data-deg="135">135&deg;</button>
+                    <button class="preset-btn" type="button" data-deg="180">180&deg;</button>
+                  </div>
+                  <div class="preset-row">
+                    <button class="preset-btn" type="button" data-deg="225">225&deg;</button>
+                    <button class="preset-btn" type="button" data-deg="270">270&deg;</button>
+                    <button class="preset-btn" type="button" data-deg="315">315&deg;</button>
+                    <button class="preset-btn" type="button" data-deg="360">360&deg;</button>
+                  </div>
+                  <div class="preset-row">
+                    <button class="preset-btn" type="button" id="btnHInvert"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2048 2048"><path d="M810.54 953.03L161.46 357.3C99.69 300.61 0 344.43 0 428.27v1191.47c0 83.84 99.69 127.66 161.46 70.96l649.08-595.73C852.13 1056.79 852.13 991.2 810.54 953.03z M1237.46 1094.97l649.08 595.73c61.77 56.69 161.46 12.88 161.46-70.96v-1191.47c0-83.84-99.69-127.66-161.46-70.96l-649.08 595.73C1195.87 991.21 1195.87 1056.79 1237.46 1094.97z"/><path d="M1024 95.7v150m0 191.3v150m0 191.3v150m0 191.4v150m0 191.3v150m0 191.4v150" fill="none" stroke="currentColor" stroke-width="83.4" stroke-linecap="round"/></svg>Flip H</button>
+                    <button class="preset-btn" type="button" id="btnVInvert"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2048 2048"><path d="M953.03 1237.46L357.3 1886.54c-56.69 61.77-12.88 161.46 70.96 161.46h1191.47c83.84 0 127.66-99.69 70.96-161.46l-595.73-649.08C1056.79 1195.87 991.2 1195.87 953.03 1237.46z M1094.97 810.54l595.73-649.08C1747.39 99.69 1703.57 0 1619.73 0H428.27c-83.84 0-127.66 99.69-70.96 161.46l595.73 649.08C991.21 852.13 1056.79 852.13 1094.97 810.54z"/><path d="M95.7 1024h150m191.3 0h150m191.3 0h150m191.4 0h150m191.3 0h150m191.4 0h150" fill="none" stroke="currentColor" stroke-width="83.4" stroke-linecap="round"/></svg>Flip V</button>
+                  </div>
+                  <div class="cp-deg-actions">
+                    <button class="cp-deg-cancel" id="degCancelBtn" type="button">Cancel</button>
+                    <button class="cp-deg-done" id="degCloseBtn" type="button">Done</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="cp-presets-grid" id="cpPresetsGrid"></div>
+        </div>
+
+        <div class="cp-right">
+          <div class="cp-slider-group">
+            <div class="cp-section-label">HSB</div>
+            <div class="cp-sliders-wrap" id="cpTopSlidersContainer"></div>
+          </div>
+          <hr class="cp-divider">
+          <div class="cp-slider-group">
+            <div class="cp-section-label">RGB</div>
+            <div class="cp-sliders-wrap" id="cpRgbSlidersContainer"></div>
+          </div>
+          <hr class="cp-divider">
+          <div class="cp-slider-group">
+            <div class="cp-section-label">OPACITY</div>
+            <div class="cp-sliders-wrap" id="cpOpacitySlidersContainer"></div>
+          </div>
+        </div>
+
+      </div>
+      
+      <div class="cp-modal-footer">
+        <div class="cp-footer-left">
+          <div class="cp-swatch-single" id="cpSwatchNew"></div>
+          <div class="cp-hex-modal-wrap" onclick="document.getElementById('cpHexInput').focus()">
+            <span class="cp-hex-hash">#</span>
+            <input type="text" class="cp-hex-modal-inp" id="cpHexInput" maxlength="6" spellcheck="false">
+          </div>
+          <div class="cp-eyedropper-btn" id="cpEyedropperBtn" onclick="toggleEyedropper()" title="Eyedropper Tool">
+            <svg width="18" height="18" viewBox="0 0 24 24"><path d="M14.31,7.57l2.11,2.11l-4.29,4.29c-1.47,1.47-3.1,2.78-4.85,3.9L4.09,19.9l2.03-3.18c1.12-1.75,2.43-3.38,3.9-4.85L14.31,7.57M14.31,6.26l-4.95,4.95c-1.52,1.52-2.87,3.2-4.02,5.01l-3.2,5.01v0.62h0.62l5.01-3.2c1.81-1.16,3.49-2.5,5.01-4.02l4.95-4.95L14.31,6.26L14.31,6.26zM21.94,4.16c-0.22-1.04-1.05-1.87-2.09-2.09c-0.93-0.19-1.79,0.09-2.41,0.64l-0.01-0.01l-2.07,2.07l-0.4-0.4l0,0c-0.37-0.37-0.9-0.57-1.48-0.48c-0.72,0.11-1.31,0.7-1.42,1.42c-0.09,0.58,0.11,1.11,0.48,1.48l0,0l4.64,4.64l0,0c0.37,0.37,0.9,0.57,1.48,0.48c0.72-0.11,1.31-0.7,1.42-1.42c0.09-0.58-0.11-1.11-0.48-1.48l0,0l-0.37-0.37l1.95-1.95c0.01-0.01,0.02-0.02,0.02-0.02l0.09-0.09l0,0C21.85,5.95,22.13,5.09,21.94,4.16zM19.27,2.94c0.13,0,0.26,0.01,0.39,0.04c0.68,0.14,1.23,0.69,1.37,1.37c0.12,0.58-0.03,1.16-0.42,1.6l-0.05,0.06l-0.02,0.02l-1.95,1.95l-0.66,0.66l0.66,0.66l0.37,0.37c0.18,0.18,0.26,0.43,0.22,0.68c-0.05,0.32-0.32,0.59-0.64,0.64C18.49,11,18.44,11,18.4,11c-0.21,0-0.4-0.08-0.55-0.23l-4.64-4.64C13.04,5.96,12.96,5.71,13,5.46c0.05-0.32,0.32-0.59,0.64-0.64c0.04-0.01,0.09-0.01,0.13-0.01c0.21,0,0.4,0.08,0.55,0.23l0.4,0.4l0.66,0.66l0.66-0.66l1.95-1.95l0.09-0.08C18.4,3.11,18.83,2.94,19.27,2.94M19.27,2.01c-0.7,0-1.34,0.27-1.82,0.7l-0.01-0.01l-2.07,2.07l-0.4-0.4l0,0c-0.31-0.31-0.74-0.5-1.21-0.5c-0.09,0-0.18,0.01-0.27,0.02c-0.72,0.11-1.31,0.7-1.42,1.42c-0.09,0.58,0.11,1.11,0.48,1.48l0,0l4.64,4.64l0,0c0.31,0.31,0.74,0.5,1.21,0.5c0.09,0,0.18-0.01,0.27-0.02c0.72-0.11,1.31-0.7,1.42-1.42c0.09-0.58-0.11-1.11-0.48-1.48l0,0l-0.37-0.37l1.95-1.95c0.01-0.01,0.02-0.02,0.02-0.02l0.09-0.09l0,0c0.55-0.62,0.83-1.48,0.64-2.41c-0.22-1.04-1.05-1.87-2.09-2.09C19.65,2.03,19.46,2.01,19.27,2.01L19.27,2.01zM2.65,21.92l0.11-0.07l-0.62-0.62l-0.07,0.11C1.83,21.72,2.27,22.16,2.65,21.92z" fill="currentColor" stroke="none"/></svg>
+          </div>
+        </div>
+        
+        <div class="cp-footer-center">
+            <div class="cp-add-btn" onclick="addCurrentColorToBank()" title="Save Color to Bank">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+            </div>
+            <div class="cp-bank-grid" id="cpBankGrid"></div>
+        </div>
+
+        <div class="cp-footer-right">
+          <button class="standard" onclick="closeCustomPicker()">Cancel</button>
+          <button class="primary" onclick="confirmCustomPicker()">OK</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+<script src="../js/linked_icons.js"></script>
+<script src="../js/core/mathInput.js"></script>
+<script>
+  const isIPadOS = (/iPad/i.test(navigator.userAgent)) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (isIPadOS) document.body.classList.add('is-ipad-os');
+
+  // Eyedropper cursor — JS injection (matches parent window)
+  (function() {
+    const svg = window.OpsinLinkedIcons ? window.OpsinLinkedIcons.getRawSvg('eyedropper-cursor') : '';
+    const url = "url('data:image/svg+xml;utf8," + encodeURIComponent(svg) + "') 2 22, none";
+    const s = document.createElement('style');
+    s.textContent = 'body.is-eyedropper-active, body.is-eyedropper-active * { cursor: ' + url + ' !important; }';
+    document.head.appendChild(s);
+  })();
+
+  const cpModal = document.getElementById('cpModalContainer');
+  const contextMenu = document.getElementById('cpContextMenu');
+
+  // Broadcasts precise modal geometry to parent window for dynamic click-through transparency
+  function broadcastState() {
+      const rects = [];
+      if (document.getElementById('cpModalOverlay').style.display !== 'none') {
+          const r = cpModal.getBoundingClientRect();
+          rects.push({ left: r.left, right: r.right, top: r.top, bottom: r.bottom });
+      }
+      if (contextMenu.classList.contains('active')) {
+          const r = contextMenu.getBoundingClientRect();
+          rects.push({ left: r.left, right: r.right, top: r.top, bottom: r.bottom });
+      }
+      const isDragging = document.body.classList.contains('is-dragging') || isDraggingModal;
+      window.parent.postMessage({ action: 'cpState', rects, isDragging }, '*');
+  }
+
+  // Bind mutation observer to catch slider drags altering the body class
+  const bodyObserver = new MutationObserver(broadcastState);
+  bodyObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+
+  // Stream raw pointer moves so parent can calculate click-through zones
+  window.addEventListener('pointermove', e => {
+      window.parent.postMessage({ action: 'mouseMove', x: e.clientX, y: e.clientY }, '*');
+  });
+
+  let isEyedropperActive = false;
+  let _parentCursorActive = false;
+
+  function _updateCursorClass() {
+      document.body.classList.toggle('is-eyedropper-active', isEyedropperActive || _parentCursorActive);
+  }
+
+  function toggleEyedropper() {
+      isEyedropperActive = !isEyedropperActive;
+      const btn = document.getElementById('cpEyedropperBtn');
+      btn.classList.toggle('active', isEyedropperActive);
+      _updateCursorClass();
+      window.parent.postMessage({ action: 'eyedropperToggle', state: isEyedropperActive }, '*');
+  }
+
+  document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && isEyedropperActive) toggleEyedropper();
+  });
+
+  window.addEventListener('message', (event) => {
+      if (!event.data) return;
+      if (event.data.action === 'open') {
+          openCustomPicker(event.data.hex);
+      } else if (event.data.action === 'eyedropperPicked' && isEyedropperActive) {
+          Object.assign(cpState, hexToHsb(event.data.hex));
+          renderPicker(true, false);
+          toggleEyedropper();
+      } else if (event.data.action === 'eyedropperToggle') {
+          isEyedropperActive = event.data.state;
+          document.getElementById('cpEyedropperBtn').classList.toggle('active', isEyedropperActive);
+          _updateCursorClass();
+      } else if (event.data.action === 'eyedropperCursor') {
+          _parentCursorActive = event.data.state;
+          _updateCursorClass();
+      }
+  });
+
+  function closeCustomPicker() {
+      if (isEyedropperActive) toggleEyedropper();
+      hideContextMenu();
+      cpModal.style.animation = 'cpModalOut 0.1s ease-in forwards';
+      setTimeout(() => {
+          document.getElementById('cpModalOverlay').style.display = 'none';
+          cpModal.style.animation = '';
+          window.parent.postMessage({ action: 'cancel' }, '*');
+          broadcastState();
+      }, 100);
+  }
+
+  function confirmCustomPicker() {
+      if (isEyedropperActive) toggleEyedropper();
+      hideContextMenu();
+      const hex = getHex();
+      cpModal.style.animation = 'cpModalOut 0.1s ease-in forwards';
+      setTimeout(() => {
+          document.getElementById('cpModalOverlay').style.display = 'none';
+          cpModal.style.animation = '';
+          window.parent.postMessage({ action: 'confirm', hex: hex }, '*');
+          broadcastState();
+      }, 100);
+  }
+
+  const cpHeader = document.querySelector('.cp-modal-header');
+  let isDraggingModal = false, dragStartX, dragStartY, modalStartLeft, modalStartTop;
+
+  cpHeader.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('.cp-modal-close')) return;
+      isDraggingModal = true;
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+      
+      const rect = cpModal.getBoundingClientRect();
+      cpModal.style.position = 'absolute';
+      cpModal.style.left = rect.left + 'px';
+      cpModal.style.top = rect.top + 'px';
+      cpModal.style.margin = '0';
+      
+      modalStartLeft = rect.left;
+      modalStartTop = rect.top;
+      cpHeader.setPointerCapture(e.pointerId);
+      broadcastState();
+  });
+
+  cpHeader.addEventListener('pointermove', (e) => {
+      if (!isDraggingModal) return;
+      let newL = modalStartLeft + (e.clientX - dragStartX);
+      let newT = modalStartTop + (e.clientY - dragStartY);
+      
+      const maxL = window.innerWidth - cpModal.offsetWidth;
+      const maxT = window.innerHeight - cpModal.offsetHeight;
+      
+      newL = Math.max(0, Math.min(newL, maxL));
+      newT = Math.max(0, Math.min(newT, maxT));
+
+      cpModal.style.left = newL + 'px';
+      cpModal.style.top = newT + 'px';
+      broadcastState();
+  });
+
+  const stopModalDrag = (e) => {
+      if (isDraggingModal) {
+          isDraggingModal = false;
+          cpHeader.releasePointerCapture(e.pointerId);
+          broadcastState();
+      }
+  };
+  cpHeader.addEventListener('pointerup', stopModalDrag);
+  cpHeader.addEventListener('pointercancel', stopModalDrag);
+
+  let cpMode = 'wheel', cpState = { h: 0, s: 100, b: 100, a: 100 };
+  let deleteTargetIndex = null, renderRaf = null, lastSentHex = null, lastSentAlpha = null;
+  let activeTopSliders = {}, activeRgbSliders = {}, activeOpacitySliders = {};
+
+  // Fill mode + gradient state
+  let cpFillMode = 'solid';           // 'solid' or 'gradient'
+  let deleteTargetType = null;        // 'bank' or 'gradStop'
+  let gradType = 'linear';            // 'linear' or 'angular'
+  let gradAngle = 0;
+  let gradStops = [];                 // [{ hex: '#RRGGBB', op: 0-100 }]
+  let activeStopIdx = 0;
+
+  // Gradient type icons (linear / radial)
+  const SVG_LINEAR = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22"><defs><linearGradient id="cp-linear-grad-icon" x1="85.28" y1="512" x2="938.72" y2="512" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="currentColor"/><stop offset="1" stop-color="currentColor" stop-opacity="0"/></linearGradient></defs><g transform="translate(0.9089, 0.9089) scale(0.0217, 0.0217)"><path d="M186.43,85.28h651.14c55.83,0,101.15,45.33,101.15,101.15v651.14c0,55.83-45.33,101.15-101.15,101.15H186.43c-55.83,0-101.15-45.33-101.15-101.15V186.43c0-55.83,45.33-101.15,101.15-101.15Z" fill="url(#cp-linear-grad-icon)" stroke="none"/><path d="M837.57,120.28c36.48,0,66.15,29.68,66.15,66.15v651.14c0,36.48-29.68,66.15-66.15,66.15H186.43c-36.48,0-66.15-29.68-66.15-66.15V186.43c0-36.48,29.68-66.15,66.15-66.15h651.14M837.57,50.28H186.43c-75.2,0-136.15,60.96-136.15,136.15v651.14c0,75.2,60.96,136.15,136.15,136.15h651.14c75.2,0,136.15-60.96,136.15-136.15V186.43c0-75.2-60.96-136.15-136.15-136.15h0Z" fill="currentColor" stroke="none"/></g></svg>`;
+  const SVG_ANGULAR = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22"><defs><radialGradient id="cp-radial-grad-icon" cx="512" cy="512" r="426.72" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="currentColor" stop-opacity="1"/><stop offset="50%" stop-color="currentColor" stop-opacity="0"/><stop offset="100%" stop-color="currentColor" stop-opacity="1"/></radialGradient></defs><g transform="translate(0.9089, 0.9089) scale(0.0217, 0.0217)"><path d="M186.43,85.28h651.14c55.83,0,101.15,45.33,101.15,101.15v651.14c0,55.83-45.33,101.15-101.15,101.15H186.43c-55.83,0-101.15-45.33-101.15-101.15V186.43c0-55.83,45.33-101.15,101.15-101.15Z" fill="url(#cp-radial-grad-icon)" stroke="none"/><path d="M837.57,120.28c36.48,0,66.15,29.68,66.15,66.15v651.14c0,36.48-29.68,66.15-66.15,66.15H186.43c-36.48,0-66.15-29.68-66.15-66.15V186.43c0-36.48,29.68-66.15,66.15-66.15h651.14M837.57,50.28H186.43c-75.2,0-136.15,60.96-136.15,136.15v651.14c0,75.2,60.96,136.15,136.15,136.15h651.14c75.2,0,136.15-60.96,136.15-136.15V186.43c0-75.2-60.96-136.15-136.15-136.15h0Z" fill="currentColor" stroke="none"/></g></svg>`;
+
+  const cpMainWrap = document.getElementById('cpMainWrap');
+  const cpMainArea = document.getElementById('cpMainArea');
+  const cpMainDarken = document.getElementById('cpMainDarken');
+  const cpTrackArea = document.getElementById('cpTrackArea');
+
+  let savedBank = [];
+  try {
+      const stored = localStorage.getItem('pixelForgeSavedColors');
+      if (stored) savedBank = JSON.parse(stored).slice(0, 12);
+  } catch (e) { console.warn("LocalStorage blocked."); }
+
+  const clamp8Bit = (val) => Math.max(0, Math.min(255, Math.round(val)));
+
+  function rgbToHsb(r, g, b, oldH = 0, oldS = 0) {
+      r /= 255; g /= 255; b /= 255;
+      let max = Math.max(r,g,b), min = Math.min(r,g,b), d = max - min;
+      let h = 0, s = max === 0 ? 0 : d / max, v = max;
+      if (max !== min) {
+          switch (max) { case r: h = (g - b) / d + (g < b ? 6 : 0); break; case g: h = (b - r) / d + 2; break; case b: h = (r - g) / d + 4; break; }
+          h /= 6;
+      }
+      return { h: (max === min) ? oldH : h * 360, s: (max === 0) ? oldS : s * 100, b: v * 100 };
+  }
+
+  function hsbToRgb(h, s, v) {
+      let r, g, b, i, f, p, q, t;
+      h /= 360; s /= 100; v /= 100; 
+      i = Math.floor(h * 6); f = h * 6 - i;
+      p = v * (1 - s); q = v * (1 - f * s); t = v * (1 - (1 - f) * s);
+      switch (i % 6) { case 0: r = v, g = t, b = p; break; case 1: r = q, g = v, b = p; break; case 2: r = p, g = v, b = t; break; case 3: r = p, g = q, b = v; break; case 4: r = t, g = p, b = v; break; case 5: r = v, g = p, b = q; break; }
+      return { r: clamp8Bit(r * 255), g: clamp8Bit(g * 255), b: clamp8Bit(b * 255) };
+  }
+
+  function hexToHsb(hex) {
+      let r = parseInt(hex.slice(1,3), 16), g = parseInt(hex.slice(3,5), 16), b = parseInt(hex.slice(5,7), 16);
+      return rgbToHsb(r, g, b);
+  }
+
+  function rgbToHex(r, g, b) {
+      return "#" + (1 << 24 | r << 16 | g << 8 | b).toString(16).slice(1).toUpperCase();
+  }
+
+  function hsbToHsl(h, s, b) {
+      s /= 100; b /= 100;
+      let l = (2 - s) * b / 2;
+      let sl = l !== 0 ? (s * b) / (l < 0.5 ? l * 2 : 2 - l * 2) : 0;
+      return { h: h, s: isNaN(sl) ? 0 : sl * 100, l: l * 100 };
+  }
+
+  function hslToHsb(h, s, l, oldH = 0, oldS = 0) {
+      s /= 100; l /= 100;
+      let b = l + s * (l < 0.5 ? l : 1 - l);
+      let sb = b === 0 ? 0 : 2 * (1 - l / b);
+      return { h: (sb === 0) ? oldH : h, s: (b === 0) ? oldS : sb * 100, b: b * 100 };
+  }
+
+  function getHex() {
+      const rgb = hsbToRgb(cpState.h, cpState.s, cpState.b);
+      return rgbToHex(rgb.r, rgb.g, rgb.b);
+  }
+
+  // --- Complementary color (RYB artist's wheel) ---
+  // Maps an RGB/light-wheel hue onto the traditional RYB paint wheel, rotates it
+  // 180° (true artist complement: purple↔yellow, red↔green, blue↔orange), then maps
+  // back. Anchors pair each RGB hue with its spot on the evenly-spaced 12-spoke RYB wheel.
+  const RGB_HUE_ANCHORS    = [0, 15, 30, 45, 60, 90, 120, 180, 240, 265, 280, 320, 360];
+  const ARTIST_HUE_ANCHORS = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360];
+  const COMP_S_FLOOR = 60;   // min saturation so the complement never looks muddy
+  const COMP_B_FLOOR = 70;   // min brightness so the complement never looks washed out
+
+  function piecewiseMap(x, xs, ys) {
+      if (x <= xs[0]) return ys[0];
+      for (let i = 0; i < xs.length - 1; i++) {
+          if (x <= xs[i + 1]) {
+              const t = (x - xs[i]) / (xs[i + 1] - xs[i]);
+              return ys[i] + t * (ys[i + 1] - ys[i]);
+          }
+      }
+      return ys[ys.length - 1];
+  }
+
+  function complementHex(hex) {
+      const { h, s, b } = hexToHsb(hex);
+      // Achromatic source (gray/black/white): no hue to flip — use a neutral tonal
+      // opposite so the gradient stays clean instead of injecting a random color.
+      if (s < 4) {
+          const nb = b < 50 ? Math.min(100, b + 55) : Math.max(0, b - 55);
+          const g = hsbToRgb(0, 0, nb);
+          return rgbToHex(g.r, g.g, g.b);
+      }
+      const compArtist = (piecewiseMap(h, RGB_HUE_ANCHORS, ARTIST_HUE_ANCHORS) + 180) % 360;
+      const compHue = piecewiseMap(compArtist, ARTIST_HUE_ANCHORS, RGB_HUE_ANCHORS);
+      const rgb = hsbToRgb(compHue, Math.max(s, COMP_S_FLOOR), Math.max(b, COMP_B_FLOOR));
+      return rgbToHex(rgb.r, rgb.g, rgb.b);
+  }
+
+  // --- Gradient color helpers ---
+  function hex8(hex, op) {
+      let alpha = Math.round((op / 100) * 255).toString(16).padStart(2, '0');
+      return hex.substring(0, 7) + alpha;
+  }
+  function hexToRgbaStr(hex, op) {
+      let r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+      return `rgba(${r}, ${g}, ${b}, ${op / 100})`;
+  }
+  function getSendAngle() {
+      if (gradType === 'linear') return (gradAngle + 180 + 360) % 360;
+      return gradAngle;
+  }
+
+  function showContextMenu(swatchElement, index, type) {
+      deleteTargetIndex = index;
+      deleteTargetType = type || 'bank';
+      const rect = swatchElement.getBoundingClientRect();
+      contextMenu.style.display = 'flex';
+      
+      requestAnimationFrame(() => {
+          const menuRect = contextMenu.getBoundingClientRect();
+          let posX = rect.left + (rect.width / 2) - (menuRect.width / 2);
+          let posY = rect.top - menuRect.height - 8;
+          if (posY < 10) posY = rect.bottom + 8;
+          contextMenu.style.left = posX + 'px';
+          contextMenu.style.top = posY + 'px';
+          contextMenu.classList.add('active');
+          broadcastState();
+      });
+  }
+
+  function hideContextMenu() {
+      if (!contextMenu.classList.contains('active')) return;
+      contextMenu.classList.remove('active');
+      setTimeout(() => { if(!contextMenu.classList.contains('active')) contextMenu.style.display = 'none'; }, 150); 
+      broadcastState();
+  }
+
+  document.addEventListener('pointerdown', (e) => {
+      if (contextMenu.classList.contains('active') && !contextMenu.contains(e.target)) hideContextMenu();
+  });
+
+  function executeDelete() {
+      if (deleteTargetIndex !== null) {
+          if (deleteTargetType === 'gradStop') {
+              if (gradStops.length > 2) {
+                  gradStops.splice(deleteTargetIndex, 1);
+                  if (activeStopIdx >= gradStops.length) activeStopIdx = gradStops.length - 1;
+                  cpState.a = gradStops[activeStopIdx].op;
+                  renderGradRows();
+                  performGradientUpdate(false);
+                  Object.assign(cpState, hexToHsb(gradStops[activeStopIdx].hex));
+                  renderPicker(true, false);
+              }
+          } else {
+              savedBank.splice(deleteTargetIndex, 1);
+              try { localStorage.setItem('pixelForgeSavedColors', JSON.stringify(savedBank)); } catch(e){}
+              renderSavedBank();
+          }
+          hideContextMenu(); deleteTargetIndex = null;
+      }
+  }
+
+  function renderSavedBank() {
+      const grid = document.getElementById('cpBankGrid'); grid.innerHTML = '';
+      for (let i = 0; i < 12; i++) {
+          const swatch = document.createElement('div');
+          if (i < savedBank.length) {
+              const hex = savedBank[i];
+              swatch.className = 'cp-bank-swatch filled'; swatch.style.backgroundColor = hex;
+              
+              let pressTimer, isDragging = false, longPressed = false;
+              
+              swatch.onclick = () => { 
+                  if (longPressed) { longPressed = false; return; }
+                  Object.assign(cpState, hexToHsb(hex)); renderPicker(true, false); 
+              };
+              swatch.oncontextmenu = (e) => { e.preventDefault(); showContextMenu(swatch, i); };
+              
+              const startPress = (e) => {
+                  if (e.touches && e.touches.length > 1) return;
+                  isDragging = false;
+                  pressTimer = window.setTimeout(() => { longPressed = true; showContextMenu(swatch, i); }, 500);
+              };
+              const cancelPress = () => { if(pressTimer) clearTimeout(pressTimer); };
+              const markDrag = () => { isDragging = true; cancelPress(); };
+              
+              swatch.addEventListener('pointerdown', startPress, { passive: true });
+              swatch.addEventListener('pointerup', cancelPress);
+              swatch.addEventListener('pointermove', markDrag, { passive: true });
+              swatch.addEventListener('pointercancel', cancelPress);
+              
+          } else { swatch.className = 'cp-bank-swatch empty'; }
+          grid.appendChild(swatch);
+      }
+  }
+
+  function addCurrentColorToBank() {
+      const currentHex = getHex();
+      savedBank = savedBank.filter(hex => hex !== currentHex);
+      savedBank.unshift(currentHex);
+      if (savedBank.length > 12) savedBank.pop();
+      try { localStorage.setItem('pixelForgeSavedColors', JSON.stringify(savedBank)); } catch(e){}
+      renderSavedBank();
+  }
+
+  function initPresets() {
+      const grid = document.getElementById('cpPresetsGrid');
+      const colors = ['#ff0000', '#ff8000', '#ffff00', '#80ff00', '#00ff00', '#00ff80', '#00ffff', '#0080ff', '#0000ff', '#8000ff', '#ff00ff', '#ff0080', '#000000', '#333333', '#474747', '#5c5c5c', '#707070', '#858585', '#999999', '#adadad', '#c2c2c2', '#d6d6d6', '#ebebeb', '#ffffff'];
+      colors.forEach(hex => {
+          const swatch = document.createElement('div');
+          swatch.className = 'cp-preset-swatch'; swatch.style.backgroundColor = hex;
+          swatch.onclick = () => { Object.assign(cpState, hexToHsb(hex)); renderPicker(true, false); };
+          grid.appendChild(swatch);
+      });
+  }
+
+  function openCustomPicker(initialHex) {
+      cpModal.style.position = '';
+      cpModal.style.left = '';
+      cpModal.style.top = '';
+      cpModal.style.margin = '';
+      
+      if (isEyedropperActive) toggleEyedropper();
+
+      cpState = hexToHsb(initialHex || '#000000');
+      cpState.a = 100;
+      lastSentHex = null; lastSentAlpha = null;
+      gradStops = []; activeStopIdx = 0; gradType = 'linear'; gradAngle = 0;
+      setPickerMode('wheel');
+      setFillMode('solid');
+      document.getElementById('cpModalOverlay').style.display = 'flex';
+      renderPicker(true, false);
+      requestAnimationFrame(broadcastState);
+  }
+
+  function setPickerMode(mode) {
+      cpMode = mode;
+      document.getElementById('btnModeSpectrum').classList.toggle('active', mode === 'spectrum');
+      document.getElementById('btnModeWheel').classList.toggle('active', mode === 'wheel');
+      
+      if (mode === 'wheel') {
+          cpMainWrap.style.borderRadius = '50%';
+          cpMainWrap.style.boxShadow = 'none';
+      } else {
+          cpMainWrap.style.borderRadius = '4px';
+          cpMainWrap.style.boxShadow = 'inset 0 0 0 1px rgba(0,0,0,0.2)';
+      }
+      renderPicker(false, false);
+  }
+
+  // --- Highly Optimized rAF Render Pipeline ---
+  function renderPicker(rebuildSliders = false, isScrubbing = false) {
+      if (renderRaf) cancelAnimationFrame(renderRaf);
+      renderRaf = requestAnimationFrame(() => performRender(rebuildSliders, isScrubbing));
+  }
+
+  function performRender(rebuildSliders, isScrubbing) {
+      updateVisuals(); updateCursors(); updateFooter();
+      if (rebuildSliders) buildSlidersDOM();
+      updateSlidersUI();
+
+      const currentHex = getHex();
+
+      if (cpFillMode === 'gradient' && gradStops[activeStopIdx]) {
+          gradStops[activeStopIdx].hex = currentHex;
+          gradStops[activeStopIdx].op = cpState.a;
+          const rows = document.getElementById('gradColorsList').children;
+          if (rows[activeStopIdx]) {
+              rows[activeStopIdx].querySelector('.cp-grad-swatch').style.backgroundColor = hexToRgbaStr(currentHex, cpState.a);
+          }
+          updateGradPreview();
+          if (currentHex !== lastSentHex || cpState.a !== lastSentAlpha || isScrubbing) {
+              lastSentHex = currentHex; lastSentAlpha = cpState.a;
+              performGradientUpdate(isScrubbing);
+          }
+      } else if (currentHex !== lastSentHex || isScrubbing) {
+          lastSentHex = currentHex;
+          window.parent.postMessage({ action: 'update', hex: currentHex, isScrubbing: isScrubbing }, '*');
+      }
+  }
+
+  // CSS Accelerated GPU Backgrounds 
+  function updateVisuals() {
+      if (cpMode === 'spectrum') {
+          cpMainArea.className = 'cp-main-bg mode-spectrum';
+          cpTrackArea.className = 'cp-track-bg mode-spectrum';
+          cpMainArea.style.background = `linear-gradient(to top, #000, rgba(0,0,0,0)), linear-gradient(to right, #fff, rgba(255,255,255,0)), hsl(${cpState.h}, 100%, 50%)`;
+          cpMainDarken.style.opacity = 0;
+          cpTrackArea.style.background = ''; // Reverts to CSS class gradients
+      } else {
+          cpMainArea.className = 'cp-main-bg mode-wheel';
+          cpTrackArea.className = 'cp-track-bg mode-wheel';
+          cpMainArea.style.background = ''; // Reverts to CSS conic gradient
+          cpMainDarken.style.opacity = 1 - (cpState.b / 100);
+          
+          const pureRgb = hsbToRgb(cpState.h, cpState.s, 100);
+          cpTrackArea.style.background = `linear-gradient(to bottom, rgb(${pureRgb.r},${pureRgb.g},${pureRgb.b}), #000)`;
+      }
+  }
+
+  function updateCursors() {
+      const c1 = document.getElementById('cpMainCursor'), c2 = document.getElementById('cpTrackCursor');
+      const w1 = 210, h1 = 210, h2 = 210; // Static DOM mapped widths
+      
+      if (cpMode === 'spectrum') {
+          c1.style.left = `${(cpState.s/100)*w1}px`; c1.style.top = `${h1 - (cpState.b/100)*h1}px`;
+          c2.style.top = `${(cpState.h/360)*h2}px`;
+      } else {
+          let a = (cpState.h - 90) * (Math.PI/180), r = (cpState.s/100) * (w1/2);
+          c1.style.left = `${(w1/2) + Math.cos(a)*r}px`; c1.style.top = `${(w1/2) + Math.sin(a)*r}px`;
+          c2.style.top = `${(1 - cpState.b/100)*h2}px`;
+      }
+  }
+
+  function updateFooter() {
+      const hex = getHex();
+      document.getElementById('cpSwatchNew').style.backgroundColor = hex;
+      if (document.activeElement !== document.getElementById('cpHexInput')) {
+          document.getElementById('cpHexInput').value = hex.replace('#', '');
+      }
+  }
+
+  function setupAppLikeInput(inp) {
+      let isFirstType = false;
+      inp.addEventListener('focus', function() { this.classList.add('app-input-grey'); isFirstType = true; setTimeout(() => this.select(), 0); });
+      inp.addEventListener('keydown', function(e) { if (isFirstType && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) { this.value = ''; this.classList.remove('app-input-grey'); isFirstType = false; }});
+      inp.addEventListener('input', function() { this.classList.remove('app-input-grey'); isFirstType = false; });
+      inp.addEventListener('blur', function() { this.classList.remove('app-input-grey'); isFirstType = false; window.getSelection().removeAllRanges(); });
+  }
+
+  setupAppLikeInput(document.getElementById('cpHexInput'));
+  document.getElementById('cpHexInput').addEventListener('change', (e) => {
+      let val = e.target.value.replace('#', '');
+      if (/^[0-9A-Fa-f]{3}$/.test(val)) val = val.split('').map(c=>c+c).join('');
+      if (/^[0-9A-Fa-f]{6}$/.test(val)) { Object.assign(cpState, hexToHsb('#'+val)); renderPicker(true, false); }
+      else e.target.value = getHex().replace('#', '');
+  });
+
+  function buildSlidersDOM() {
+      const topContainer = document.getElementById('cpTopSlidersContainer'), rgbContainer = document.getElementById('cpRgbSlidersContainer'), opacityContainer = document.getElementById('cpOpacitySlidersContainer');
+      topContainer.innerHTML = ''; rgbContainer.innerHTML = ''; opacityContainer.innerHTML = '';
+      activeTopSliders = {}; activeRgbSliders = {}; activeOpacitySliders = {};
+      
+      const buildRow = (id, label, min, max, callback, containerDOM, targetObj) => {
+          const row = document.createElement('div'); row.className = 'cp-slider-row';
+          const lbl = document.createElement('div'); lbl.className = 'cp-slider-lbl'; lbl.textContent = label;
+          const rng = document.createElement('input'); rng.type = 'range'; rng.className = 'cp-slider-inp'; rng.min = min; rng.max = max; rng.step = 'any'; 
+          const num = document.createElement('input'); num.type = 'number'; num.className = 'cp-num-inp'; num.min = min; num.max = max;
+          setupAppLikeInput(num); targetObj[id] = { rng, num };
+
+          // Pointer interactions map the active dragging pointer global state
+          rng.addEventListener('pointerdown', () => document.body.classList.add('is-dragging'));
+          rng.addEventListener('pointerup', () => document.body.classList.remove('is-dragging'));
+          rng.addEventListener('pointercancel', () => document.body.classList.remove('is-dragging'));
+
+          const sync = (v, isNumInput, isScrubbing = false) => { 
+              let valFloat = Math.min(max, Math.max(min, isNaN(parseFloat(v)) ? 0 : parseFloat(v))); 
+              if (isNumInput) rng.value = valFloat; else num.value = Math.round(valFloat);
+              callback(valFloat); renderPicker(false, isScrubbing); 
+          };
+          
+          rng.addEventListener('input', (e) => sync(e.target.value, false, true));
+          rng.addEventListener('change', (e) => sync(e.target.value, false, false));
+          num.addEventListener('input', (e) => sync(e.target.value, true, true));
+          num.addEventListener('change', (e) => sync(e.target.value, true, false));
+
+          row.addEventListener('wheel', (e) => {
+              e.preventDefault();
+              let val = isNaN(parseFloat(num.value)) ? 0 : parseFloat(num.value);
+              val += (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? Math.sign(e.deltaX) : -Math.sign(e.deltaY)) * (e.shiftKey ? 10 : 1);
+              sync(val, true, false);
+          }, { passive: false });
+
+          row.appendChild(lbl); row.appendChild(rng); row.appendChild(num); containerDOM.appendChild(row);
+      };
+
+      buildRow('h', 'H', 0, 360, (v) => { cpState.h = v; }, topContainer, activeTopSliders);
+      buildRow('s', 'S', 0, 100, (v) => { cpState.s = v; }, topContainer, activeTopSliders);
+      buildRow('b', 'B', 0, 100, (v) => { cpState.b = v; }, topContainer, activeTopSliders);
+
+      buildRow('r', 'R', 0, 255, (v) => { let c = hsbToRgb(cpState.h, cpState.s, cpState.b); Object.assign(cpState, rgbToHsb(v, c.g, c.b, cpState.h, cpState.s)); }, rgbContainer, activeRgbSliders);
+      buildRow('g', 'G', 0, 255, (v) => { let c = hsbToRgb(cpState.h, cpState.s, cpState.b); Object.assign(cpState, rgbToHsb(c.r, v, c.b, cpState.h, cpState.s)); }, rgbContainer, activeRgbSliders);
+      buildRow('b', 'B', 0, 255, (v) => { let c = hsbToRgb(cpState.h, cpState.s, cpState.b); Object.assign(cpState, rgbToHsb(c.r, c.g, v, cpState.h, cpState.s)); }, rgbContainer, activeRgbSliders);
+
+      buildRow('a', 'A', 0, 100, (v) => { cpState.a = v; }, opacityContainer, activeOpacitySliders);
+  }
+
+  function updateSlidersUI() {
+      const setVal = (inp, val) => { if (document.activeElement !== inp) inp.value = val; };
+      if (activeTopSliders.h) {
+          setVal(activeTopSliders.h.rng, cpState.h); setVal(activeTopSliders.h.num, Math.round(cpState.h));
+          setVal(activeTopSliders.s.rng, cpState.s); setVal(activeTopSliders.s.num, Math.round(cpState.s));
+          setVal(activeTopSliders.b.rng, cpState.b); setVal(activeTopSliders.b.num, Math.round(cpState.b));
+
+          activeTopSliders.h.rng.style.setProperty('--slider-bg', 'linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)');
+          activeTopSliders.s.rng.style.setProperty('--slider-bg', `linear-gradient(to right, ${rgbToHex(hsbToRgb(cpState.h,0,cpState.b).r, hsbToRgb(cpState.h,0,cpState.b).g, hsbToRgb(cpState.h,0,cpState.b).b)}, ${rgbToHex(hsbToRgb(cpState.h,100,cpState.b).r, hsbToRgb(cpState.h,100,cpState.b).g, hsbToRgb(cpState.h,100,cpState.b).b)})`);
+          activeTopSliders.b.rng.style.setProperty('--slider-bg', `linear-gradient(to right, #000, ${rgbToHex(hsbToRgb(cpState.h,cpState.s,100).r, hsbToRgb(cpState.h,cpState.s,100).g, hsbToRgb(cpState.h,cpState.s,100).b)})`);
+      }
+      if (activeRgbSliders.r) {
+          let c = hsbToRgb(cpState.h, cpState.s, cpState.b);
+          setVal(activeRgbSliders.r.rng, c.r); setVal(activeRgbSliders.r.num, Math.round(c.r));
+          setVal(activeRgbSliders.g.rng, c.g); setVal(activeRgbSliders.g.num, Math.round(c.g));
+          setVal(activeRgbSliders.b.rng, c.b); setVal(activeRgbSliders.b.num, Math.round(c.b));
+          
+          let rInt = Math.round(c.r), gInt = Math.round(c.g), bInt = Math.round(c.b);
+          activeRgbSliders.r.rng.style.setProperty('--slider-bg', `linear-gradient(to right, rgb(0,${gInt},${bInt}), rgb(255,${gInt},${bInt}))`);
+          activeRgbSliders.g.rng.style.setProperty('--slider-bg', `linear-gradient(to right, rgb(${rInt},0,${bInt}), rgb(${rInt},255,${bInt}))`);
+          activeRgbSliders.b.rng.style.setProperty('--slider-bg', `linear-gradient(to right, rgb(${rInt},${gInt},0), rgb(${rInt},${gInt},255))`);
+      }
+      if (activeOpacitySliders.a) {
+          setVal(activeOpacitySliders.a.rng, cpState.a); setVal(activeOpacitySliders.a.num, Math.round(cpState.a));
+          const oc = hsbToRgb(cpState.h, cpState.s, cpState.b);
+          activeOpacitySliders.a.rng.style.setProperty('--slider-bg', `linear-gradient(to right, rgba(${oc.r},${oc.g},${oc.b},0), rgb(${oc.r},${oc.g},${oc.b})) 0 0 / 100% 100%, conic-gradient(#c8c8c8 25%, #fff 0 50%, #c8c8c8 0 75%, #fff 0) 0 0 / 12px 12px`);
+      }
+  }
+
+  // Optimized Touch/Mouse Unified PointerEvents
+  function bindPointerDrag(el, callback) {
+      let isDragging = false;
+      const handleEvent = (e) => {
+          const rect = el.getBoundingClientRect();
+          callback(e.clientX - rect.left, e.clientY - rect.top, rect.width, rect.height);
+      };
+      el.addEventListener('pointerdown', (e) => { document.body.classList.add('is-dragging'); el.setPointerCapture(e.pointerId); isDragging = true; handleEvent(e); });
+      el.addEventListener('pointermove', (e) => { if (isDragging) handleEvent(e); });
+      const stop = (e) => { document.body.classList.remove('is-dragging'); isDragging = false; el.releasePointerCapture(e.pointerId); };
+      el.addEventListener('pointerup', stop);
+      el.addEventListener('pointercancel', stop);
+  }
+
+  bindPointerDrag(document.getElementById('cpMainWrap'), (x, y, w, h) => {
+      x = Math.max(0, Math.min(w, x)); y = Math.max(0, Math.min(h, y));
+      if (cpMode === 'spectrum') {
+          cpState.s = (x / w) * 100; cpState.b = 100 - (y / h) * 100;
+      } else {
+          let cx = w/2, cy = h/2, cr = w/2;
+          let dx = x - cx, dy = y - cy, a = Math.atan2(dy, dx) * (180/Math.PI) + 90;
+          if (a < 0) a += 360;
+          cpState.h = a; cpState.s = Math.min(100, (Math.sqrt(dx*dx + dy*dy) / cr) * 100);
+      }
+      renderPicker(false, true);
+  });
+
+  bindPointerDrag(document.getElementById('cpTrackWrap'), (x, y, w, h) => {
+      let pct = (Math.max(0, Math.min(h, y)) / h) * 100;
+      if (cpMode === 'spectrum') cpState.h = (pct/100)*360; else cpState.b = 100 - pct;
+      renderPicker(false, true);
+  });
+  
+  document.getElementById('cpTrackWrap').addEventListener('wheel', (e) => {
+      e.preventDefault();
+      let delta = Math.sign(e.deltaY) || Math.sign(e.deltaX);
+      if (delta === 0) return;
+      let step = e.shiftKey ? 10 : 1;
+      
+      if (cpMode === 'spectrum') {
+          cpState.h = Math.max(0, Math.min(360, cpState.h + (delta * step * 3.6)));
+      } else {
+          cpState.b = Math.max(0, Math.min(100, cpState.b - (delta * step)));
+      }
+      renderPicker(false, false);
+  }, { passive: false });
+
+  // ══════════════════ FILL MODE (Solid / Gradient) ══════════════════
+  function setFillMode(mode) {
+      const modeChanged = cpFillMode !== mode;
+      cpFillMode = mode;
+      if (modeChanged) { lastSentHex = null; lastSentAlpha = null; }
+
+      document.getElementById('btnModeSolid').classList.toggle('active', mode === 'solid');
+      document.getElementById('btnModeGradient').classList.toggle('active', mode === 'gradient');
+
+      const solidTabs = document.getElementById('solidLeftTabs');
+      const canvasRow = document.getElementById('cpCanvasRow');
+      const gradEditor = document.getElementById('gradientEditorArea');
+
+      if (mode === 'solid') {
+          if (degOverlay) degOverlay.style.display = 'none';
+          solidTabs.style.visibility = '';
+          canvasRow.style.visibility = '';
+          gradEditor.style.display = 'none';
+
+          setPickerMode(cpMode);
+          Object.assign(cpState, hexToHsb(getHex()));
+          renderPicker(true, false);
+      } else {
+          // Hide (but keep laid out) the Spectrum/Wheel tabs + wheel canvas so the
+          // gradient editor overlays exactly that region and the presets stay anchored.
+          solidTabs.style.visibility = 'hidden';
+          canvasRow.style.visibility = 'hidden';
+          gradEditor.style.display = 'flex';
+
+          // Seed a default 2-stop gradient the first time gradient mode is entered.
+          if (!Array.isArray(gradStops) || gradStops.length < 2) {
+              const baseHex = getHex();
+              gradStops = [{ hex: baseHex, op: 100 }, { hex: complementHex(baseHex), op: 100 }];
+              activeStopIdx = 0;
+              gradType = 'linear';
+              gradAngle = 0;
+              updateAngleUI();
+              document.getElementById('tbGradType').innerHTML = SVG_LINEAR;
+          }
+          if (activeStopIdx >= gradStops.length) activeStopIdx = 0;
+
+          cpState.a = gradStops[activeStopIdx].op;
+          renderGradRows();
+          Object.assign(cpState, hexToHsb(gradStops[activeStopIdx].hex));
+          renderPicker(true, false);
+      }
+  }
+
+  // ══════════════════ GRADIENT EDITOR ══════════════════
+  const degOverlay = document.getElementById('cpDegOverlay');
+  let degAngleOnOpen = 0;
+
+  function stopLabel(i, n) {
+      if (gradType === 'angular') {
+          if (n === 2) return i === 0 ? "1 (Inner)" : "2 (Outer)";
+          if (n === 3) return i === 0 ? "1 (Inner)" : (i === 1 ? "2 (Middle)" : "3 (Outer)");
+          if (i === 0) return "1 (Inner)";
+          if (i === n - 1) return `${n} (Outer)`;
+          return `${i + 1}`;
+      } else {
+          if (n === 2) return i === 0 ? "1 (Top)" : "2 (Bottom)";
+          if (n === 3) return i === 0 ? "1 (Top)" : (i === 1 ? "2 (Middle)" : "3 (Bottom)");
+          if (i === 0) return "1 (Top)";
+          if (i === n - 1) return `${n} (Bottom)`;
+          return `${i + 1}`;
+      }
+  }
+
+  function normalizeAngleDeg(raw) {
+      let a = Number(raw); if (!Number.isFinite(a)) a = 0;
+      if (a === 360 || a === -360) return 0;
+      a = a % 360; if (a === 0) return 0;
+      a = Math.trunc(a);
+      if (a > 359) a = 359; if (a < -359) a = -359;
+      return a;
+  }
+
+  function updateAngleUI() {
+      const degree = '°';
+      document.getElementById('gradAngleDisplay').textContent = `${gradAngle}${degree}`;
+      document.getElementById('gradAngleRotator').style.transform = `rotate(${gradAngle}deg)`;
+      document.getElementById('degBigRotator').style.transform = `rotate(${gradAngle}deg)`;
+      document.getElementById('degAngleInput').value = `${gradAngle}${degree}`;
+  }
+
+  function setAngleDeg(deg) {
+      gradAngle = normalizeAngleDeg(deg);
+      updateAngleUI();
+      performGradientUpdate(false);
+  }
+
+  document.getElementById('tbGradType').addEventListener('click', () => {
+      gradType = (gradType === 'linear') ? 'angular' : 'linear';
+      document.getElementById('tbGradType').innerHTML = gradType === 'linear' ? SVG_LINEAR : SVG_ANGULAR;
+      renderGradRows();
+      performGradientUpdate(false);
+  });
+
+  document.getElementById('tbGradAngle').addEventListener('click', () => {
+      degAngleOnOpen = gradAngle;
+      document.getElementById('degAngleInput').value = `${gradAngle}°`;
+      degOverlay.style.display = 'flex';
+  });
+
+  function cancelDegOverlay() {
+      setAngleDeg(degAngleOnOpen);
+      degOverlay.style.display = 'none';
+  }
+  document.getElementById('degCancelBtn').addEventListener('click', cancelDegOverlay);
+
+  function closeDegOverlay() {
+      if (degOverlay.style.display !== 'flex') { degOverlay.style.display = 'none'; return; }
+      const raw = document.getElementById('degAngleInput').value.replace(/°/g, '');
+      setAngleDeg(raw);
+      degOverlay.style.display = 'none';
+  }
+  document.getElementById('degCloseBtn').addEventListener('click', closeDegOverlay);
+
+  degOverlay.querySelectorAll('.preset-btn[data-deg]').forEach(btn => {
+      btn.addEventListener('click', () => { setAngleDeg(btn.getAttribute('data-deg')); });
+  });
+  document.getElementById('btnHInvert').addEventListener('click', () => { setAngleDeg(-gradAngle); });
+  document.getElementById('btnVInvert').addEventListener('click', () => { setAngleDeg(180 - gradAngle); });
+
+  // --- Draggable angle dial (absolute, Photoshop-style; hold Shift to snap to 15°) ---
+  const degDialWrap = document.getElementById('degDialWrap');
+  let dialDragging = false, dialRawDeg = 0;
+
+  function applyDialAngle(snap) {
+      let deg = snap ? Math.round(dialRawDeg / 15) * 15 : Math.round(dialRawDeg);
+      gradAngle = ((deg % 360) + 360) % 360;
+      updateAngleUI();
+      performGradientUpdate(true);
+  }
+  function dialReadAngle(e) {
+      const r = degDialWrap.getBoundingClientRect();
+      const dx = e.clientX - (r.left + r.width / 2);
+      const dy = e.clientY - (r.top + r.height / 2);
+      dialRawDeg = Math.atan2(dx, -dy) * (180 / Math.PI);
+  }
+  degDialWrap.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      dialDragging = true;
+      document.body.classList.add('is-dragging');
+      degDialWrap.classList.add('is-grabbing');
+      degDialWrap.setPointerCapture(e.pointerId);
+      dialReadAngle(e); applyDialAngle(e.shiftKey);
+  });
+  degDialWrap.addEventListener('pointermove', (e) => {
+      if (!dialDragging) return;
+      dialReadAngle(e); applyDialAngle(e.shiftKey);
+  });
+  function endDialDrag(e) {
+      if (!dialDragging) return;
+      dialDragging = false;
+      document.body.classList.remove('is-dragging');
+      degDialWrap.classList.remove('is-grabbing');
+      try { degDialWrap.releasePointerCapture(e.pointerId); } catch (_) {}
+      performGradientUpdate(false);
+  }
+  degDialWrap.addEventListener('pointerup', endDialDrag);
+  degDialWrap.addEventListener('pointercancel', endDialDrag);
+  document.addEventListener('keydown', (e) => { if (dialDragging && e.key === 'Shift') applyDialAngle(true); });
+  document.addEventListener('keyup', (e) => { if (dialDragging && e.key === 'Shift') applyDialAngle(false); });
+
+  // --- Scroll-wheel fine-tuning over the dial or the angle input (±1, Shift = ±10) ---
+  let angleWheelCommit = null;
+  function angleWheelAdjust(e) {
+      e.preventDefault();
+      const dir = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? Math.sign(e.deltaX) : -Math.sign(e.deltaY);
+      if (!dir) return;
+      const step = e.shiftKey ? 10 : 1;
+      gradAngle = ((Math.round(gradAngle) + dir * step) % 360 + 360) % 360;
+      updateAngleUI();
+      performGradientUpdate(true);
+      clearTimeout(angleWheelCommit);
+      angleWheelCommit = setTimeout(() => performGradientUpdate(false), 150);
+  }
+  degDialWrap.addEventListener('wheel', angleWheelAdjust, { passive: false });
+  document.getElementById('degAngleInput').addEventListener('wheel', angleWheelAdjust, { passive: false });
+
+  document.getElementById('degAngleInput').addEventListener('focus', function() { this.value = gradAngle; this.select(); });
+  document.getElementById('degAngleInput').addEventListener('input', function() {
+      gradAngle = normalizeAngleDeg(this.value);
+      updateAngleUI(); performGradientUpdate(true);
+  });
+  document.getElementById('degAngleInput').addEventListener('blur', (e) => {
+      if (e.relatedTarget && degOverlay.contains(e.relatedTarget)) return;
+      closeDegOverlay();
+  });
+
+  document.getElementById('btnGradPlus').addEventListener('click', () => {
+      if (gradStops.length < 24) {
+          gradStops.push({ hex: gradStops[activeStopIdx].hex, op: 100 });
+          activeStopIdx = gradStops.length - 1;
+          cpState.a = gradStops[activeStopIdx].op;
+          renderGradRows();
+          performGradientUpdate(false);
+          Object.assign(cpState, hexToHsb(gradStops[activeStopIdx].hex));
+          renderPicker(true, false);
+      }
+  });
+
+  document.getElementById('btnGradTrash').addEventListener('click', () => {
+      if (gradStops.length > 2) {
+          gradStops.splice(activeStopIdx, 1);
+          if (activeStopIdx >= gradStops.length) activeStopIdx = gradStops.length - 1;
+          cpState.a = gradStops[activeStopIdx].op;
+          renderGradRows();
+          performGradientUpdate(false);
+          Object.assign(cpState, hexToHsb(gradStops[activeStopIdx].hex));
+          renderPicker(true, false);
+      }
+  });
+
+  // Whole-row interaction: tap selects the stop, drag (past a small threshold)
+  // reorders it, hold opens the delete menu. The row is the drag surface, so the
+  // user can grab the label, swatch, or the handle — anywhere on the row.
+  function setupGradRow(row, startIndex, stopObj) {
+      const list = document.getElementById('gradColorsList');
+      const THRESH = 4;
+      let pressTimer = null, longPressed = false;
+      let downX = 0, downY = 0, armed = false, dragging = false, offsetY = 0, placeholder = null;
+
+      const beginDrag = () => {
+          dragging = true;
+          const rect = row.getBoundingClientRect();
+          offsetY = downY - rect.top;
+          placeholder = document.createElement('div');
+          placeholder.className = 'cp-grad-row-placeholder';
+          placeholder.style.height = rect.height + 'px';
+          list.insertBefore(placeholder, row);
+          row.style.position = 'fixed';
+          row.style.top = rect.top + 'px';
+          row.style.left = rect.left + 'px';
+          row.style.width = rect.width + 'px';
+          row.style.margin = '0';
+          row.classList.add('is-dragging');
+          document.body.classList.add('is-dragging');
+      };
+
+      const moveDrag = (clientY) => {
+          row.style.top = (clientY - offsetY) + 'px';
+          const siblings = Array.from(list.querySelectorAll('.cp-grad-row:not(.is-dragging)'));
+          let targetSibling = null;
+          for (const sibling of siblings) {
+              const rect = sibling.getBoundingClientRect();
+              if (clientY < (rect.top + rect.height / 2)) { targetSibling = sibling; break; }
+          }
+          if (targetSibling) list.insertBefore(placeholder, targetSibling);
+          else list.appendChild(placeholder);
+      };
+
+      const commitDrag = () => {
+          let newIndex = Array.from(list.children).filter(c => c !== row).indexOf(placeholder);
+          if (placeholder && placeholder.parentNode === list) {
+              list.insertBefore(row, placeholder);
+              placeholder.remove();
+          } else {
+              newIndex = gradStops.length - 1;
+          }
+          placeholder = null;
+          row.classList.remove('is-dragging');
+          row.style.position = ''; row.style.top = ''; row.style.left = ''; row.style.width = ''; row.style.margin = '';
+          document.body.classList.remove('is-dragging');
+
+          const movedColor = gradStops.splice(startIndex, 1)[0];
+          gradStops.splice(newIndex, 0, movedColor);
+          if (activeStopIdx === startIndex) activeStopIdx = newIndex;
+          else if (startIndex < activeStopIdx && newIndex >= activeStopIdx) activeStopIdx--;
+          else if (startIndex > activeStopIdx && newIndex <= activeStopIdx) activeStopIdx++;
+
+          renderGradRows();
+          performGradientUpdate(false);
+      };
+
+      const selectStop = () => {
+          activeStopIdx = startIndex;
+          cpState.a = stopObj.op;
+          Object.assign(cpState, hexToHsb(stopObj.hex));
+          renderGradRows();
+          renderPicker(true, false);
+      };
+
+      const onMove = (e) => {
+          if (dragging) { e.preventDefault(); moveDrag(e.clientY); return; }
+          if (!armed) return;
+          if (Math.abs(e.clientX - downX) > THRESH || Math.abs(e.clientY - downY) > THRESH) {
+              if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+              e.preventDefault();
+              beginDrag();
+              moveDrag(e.clientY);
+          }
+      };
+
+      const onUp = () => {
+          if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+          document.removeEventListener('pointermove', onMove);
+          document.removeEventListener('pointerup', onUp);
+          document.removeEventListener('pointercancel', onUp);
+          if (dragging) { dragging = false; armed = false; commitDrag(); return; }
+          const wasLong = longPressed;
+          armed = false; longPressed = false;
+          if (!wasLong) selectStop();
+      };
+
+      row.addEventListener('pointerdown', (e) => {
+          if (e.button != null && e.button !== 0) return;
+          armed = true; longPressed = false;
+          downX = e.clientX; downY = e.clientY;
+          pressTimer = window.setTimeout(() => {
+              pressTimer = null;
+              if (!dragging && gradStops.length > 2) { longPressed = true; armed = false; showContextMenu(row, startIndex, 'gradStop'); }
+          }, 500);
+          document.addEventListener('pointermove', onMove, { passive: false });
+          document.addEventListener('pointerup', onUp);
+          document.addEventListener('pointercancel', onUp);
+      });
+
+      row.oncontextmenu = (e) => {
+          e.preventDefault();
+          if (gradStops.length > 2) showContextMenu(row, startIndex, 'gradStop');
+      };
+  }
+
+  function renderGradRows() {
+      const list = document.getElementById('gradColorsList');
+      list.innerHTML = '';
+      gradStops.forEach((stopObj, i) => {
+          const row = document.createElement('div');
+          row.className = 'cp-grad-row' + (i === activeStopIdx ? ' active' : '');
+
+          const swatchWrap = document.createElement('div');
+          swatchWrap.className = 'cp-grad-swatch-wrap';
+          const swatch = document.createElement('div');
+          swatch.className = 'cp-grad-swatch';
+          swatch.style.backgroundColor = hexToRgbaStr(stopObj.hex, stopObj.op);
+          swatchWrap.appendChild(swatch);
+
+          const lbl = document.createElement('div');
+          lbl.className = 'cp-grad-label';
+          lbl.textContent = stopLabel(i, gradStops.length);
+
+          const drag = document.createElement('div');
+          drag.className = 'cp-grad-drag';
+          drag.innerHTML = `<svg viewBox="0 0 16 16"><rect x="2" y="4" width="12" height="1.6" rx="0.8"/><rect x="2" y="7.2" width="12" height="1.6" rx="0.8"/><rect x="2" y="10.4" width="12" height="1.6" rx="0.8"/></svg>`;
+
+          row.appendChild(swatchWrap);
+          row.appendChild(lbl);
+          row.appendChild(drag);
+          list.appendChild(row);
+
+          setupGradRow(row, i, stopObj);
+      });
+
+      const countEl = document.getElementById('gradStopCount');
+      if (countEl) countEl.textContent = gradStops.length;
+      const trashBtn = document.getElementById('btnGradTrash');
+      if (trashBtn) trashBtn.disabled = gradStops.length <= 2;
+      updateGradPreview();
+  }
+
+  function updateGradPreview() {
+      const pv = document.getElementById('gradPreviewBar');
+      if (!pv) return;
+      const n = gradStops.length;
+      const parts = gradStops.map((s, i) => {
+          const pos = n > 1 ? (i / (n - 1)) * 100 : 0;
+          return `${hexToRgbaStr(s.hex, s.op)} ${pos.toFixed(1)}%`;
+      });
+      pv.style.background = (gradType === 'angular')
+          ? `radial-gradient(circle at 50% 50%, ${parts.join(', ')})`
+          : `linear-gradient(90deg, ${parts.join(', ')})`;
+  }
+
+  function performGradientUpdate(isScrubbing) {
+      const stops8 = gradStops.map(s => hex8(s.hex, s.op));
+      window.parent.postMessage({
+          action: 'update',
+          isGradient: true,
+          gradientData: { type: gradType, angle: getSendAngle(), stops: stops8 },
+          hex: stops8[0],
+          isScrubbing: isScrubbing
+      }, '*');
+  }
+
+  initPresets();
+  renderSavedBank();
+</script>
+</body>
+</html>

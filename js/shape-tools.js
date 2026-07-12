@@ -3,7 +3,7 @@
 // Canvas Shape Tools: Rectangle, Ellipse, Triangle, Line segment (Illustrator-style). One tool is
 // active at a time; click-drag draws the shape, and releasing commits it as a new TOP layer
 // painted with the current drawing defaults (window.getDrawingDefaults, js/layers.js -- set in
-// the Appearance panel while nothing is selected; the app default is no fill + black stroke).
+// the Paint Panel while nothing is selected; the app default is no fill + black stroke).
 // A click with no drag does nothing. The tools share one IIFE -- they differ only in which
 // element they create + its label.
 //
@@ -130,6 +130,46 @@
         shapeOverlay.toggleAttribute('hidden', true);
     };
 
+    // Effective draw points for the in-progress drag after the keyboard modifiers (Illustrator-
+    // style): Shift constrains proportions (square / circle / equilateral triangle; a line snaps
+    // to the nearest 45 degrees), Alt draws from the center (the press point becomes the middle).
+    // Both preview and commit derive from these, so what you see is exactly what lands.
+    const shapeEffectivePoints = (drag) => {
+        let S = drag.startArt, C = drag.curArt;
+        if (drag.shift) {
+            const dx = C.x - S.x, dy = C.y - S.y;
+            let ex = dx, ey = dy;
+            if (drag.type === 'line') {
+                const c = constrainVec45(dx, dy);
+                ex = c.x; ey = c.y;
+            } else if (drag.type === 'triangle') {
+                // Equilateral: height = width * sqrt(3)/2; the dominant drag axis drives.
+                const K = Math.sqrt(3) / 2;
+                let w = Math.abs(dx), h = Math.abs(dy);
+                if (w * K >= h) h = w * K; else w = h / K;
+                ex = (dx < 0 ? -1 : 1) * w;
+                ey = (dy < 0 ? -1 : 1) * h;
+            } else {
+                const m = Math.max(Math.abs(dx), Math.abs(dy));
+                ex = (dx < 0 ? -1 : 1) * m;
+                ey = (dy < 0 ? -1 : 1) * m;
+            }
+            C = { x: S.x + ex, y: S.y + ey };
+        }
+        if (drag.alt) S = { x: 2 * S.x - C.x, y: 2 * S.y - C.y };
+        return { S, C };
+    };
+
+    // Track the current pointer point: raw while Shift-constrained (the constraint wins over
+    // point snapping), snapped otherwise. rawCur is kept so a mid-drag modifier change can
+    // recompute without pointer movement.
+    const shapeUpdateCur = (drag, raw) => {
+        drag.rawCur = raw;
+        if (drag.shift) { drag.curArt = raw; return; }
+        const sp = window.snapRootPoint?.(raw);
+        drag.curArt = sp || raw;
+    };
+
     // Green hairline rubber-band for the in-progress drag, drawn directly in overlay px
     // (start + current projected through the screen matrix) so the stroke is a constant screen px.
     const drawPreview = () => {
@@ -137,8 +177,9 @@
         const M = getShapeScreenMatrix();
         if (!M) { hideOverlay(); return; }
 
-        const a = M.transformPoint(new DOMPoint(shapeDrag.startArt.x, shapeDrag.startArt.y));
-        const b = M.transformPoint(new DOMPoint(shapeDrag.curArt.x, shapeDrag.curArt.y));
+        const eff = shapeEffectivePoints(shapeDrag);
+        const a = M.transformPoint(new DOMPoint(eff.S.x, eff.S.y));
+        const b = M.transformPoint(new DOMPoint(eff.C.x, eff.C.y));
 
         let el;
         if (shapeDrag.type === 'line') {
@@ -166,7 +207,34 @@
         el.setAttribute('stroke-linejoin', 'round');
         el.setAttribute('pointer-events', 'none');
 
-        shapeOverlay.replaceChildren(el);
+        const children = [el];
+
+        // Shift-constraint hints (dashed green hairlines): a corner-to-corner diagonal marks a
+        // square, a centered plus marks a circle, a vertical midline marks the perfect triangle.
+        if (shapeDrag.shift && shapeDrag.type !== 'line') {
+            const mkHint = (x1, y1, x2, y2) => {
+                const l = document.createElementNS(SVGNS, 'line');
+                l.setAttribute('x1', x1); l.setAttribute('y1', y1);
+                l.setAttribute('x2', x2); l.setAttribute('y2', y2);
+                l.setAttribute('stroke', SHAPE_GREEN);
+                l.setAttribute('stroke-width', '1');
+                l.setAttribute('stroke-dasharray', '4 3');
+                l.setAttribute('pointer-events', 'none');
+                return l;
+            };
+            const minX = Math.min(a.x, b.x), maxX = Math.max(a.x, b.x);
+            const minY = Math.min(a.y, b.y), maxY = Math.max(a.y, b.y);
+            const midX = (minX + maxX) / 2, midY = (minY + maxY) / 2;
+            if (shapeDrag.type === 'rect') {
+                children.push(mkHint(a.x, a.y, b.x, b.y));
+            } else if (shapeDrag.type === 'ellipse') {
+                children.push(mkHint(minX, midY, maxX, midY), mkHint(midX, minY, midX, maxY));
+            } else if (shapeDrag.type === 'triangle') {
+                children.push(mkHint(midX, minY, midX, maxY));
+            }
+        }
+
+        shapeOverlay.replaceChildren(...children);
         shapeOverlay.toggleAttribute('hidden', false);
     };
 
@@ -186,7 +254,8 @@
     // painted with the drawing defaults, appended last in #ink-wrapper so it's the top card.
     const commitShape = (drag) => {
         if (!drag || !globalOptimizedSvg) return;
-        const { type, startArt, curArt } = drag;
+        const { type } = drag;
+        const { S: startArt, C: curArt } = shapeEffectivePoints(drag);   // Shift/Alt-modified points
         const wrapper = globalOptimizedSvg.querySelector(':scope > g#ink-wrapper') || globalOptimizedSvg;
 
         const minX = Math.min(startArt.x, curArt.x), minY = Math.min(startArt.y, curArt.y);
@@ -211,7 +280,7 @@
             shape.setAttribute('rx', round2(w / 2)); shape.setAttribute('ry', round2(h / 2));
         }
 
-        // New shapes take the current drawing defaults (set in the Appearance panel while
+        // New shapes take the current drawing defaults (set in the Paint Panel while
         // nothing is selected, js/layers.js). A <line> can't render a fill, so it stays none.
         const d = window.getDrawingDefaults ? window.getDrawingDefaults() : { fill: 'none', stroke: '#000000', strokeWidth: getDefaultStrokeWidth() };
         shape.setAttribute('fill', type === 'line' ? 'none' : d.fill);
@@ -226,8 +295,10 @@
 
         buildLayersPanel();
         window.selectLayer?.(idx);      // highlight the new top card (panel selection)
+        window.setEditSelectionSet?.([idx]);
         window.setHistoryLabel?.('Draw ' + (SHAPE_LABEL[type] || 'Shape'), SHAPE_LABEL[type] === 'Line' ? 'line-tool' : SHAPE_LABEL[type] === 'Ellipse' ? 'ellipse-tool' : SHAPE_LABEL[type] === 'Triangle' ? 'triangle-tool' : 'rect-tool');
         renderOutput(false);
+        window.adoptCanvasSelection?.([idx]);
         window.updateAllScrollbars?.();
     };
 
@@ -245,12 +316,10 @@
     function onPointerMove(e) {
         if (window.isGuideDragActive?.()) return;
         if (!shapeDrag || e.pointerId !== shapeDrag.pointerId) return;
-        let cur = pointerToArtboard(e.clientX, e.clientY);
-        if (cur) {
-            const sp = window.snapRootPoint?.(cur);
-            if (sp) cur = sp;
-            shapeDrag.curArt = cur;
-        }
+        shapeDrag.shift = e.shiftKey;
+        shapeDrag.alt = e.altKey;
+        const cur = pointerToArtboard(e.clientX, e.clientY);
+        if (cur) shapeUpdateCur(shapeDrag, cur);
         if (!shapeDrag.moved) {
             if (Math.abs(e.clientX - shapeDrag.downX) < SHAPE_DRAG_THRESHOLD && Math.abs(e.clientY - shapeDrag.downY) < SHAPE_DRAG_THRESHOLD) return;
             shapeDrag.moved = true;
@@ -260,12 +329,10 @@
 
     function onPointerUp(e) {
         if (!shapeDrag || (e && e.pointerId !== shapeDrag.pointerId)) return;
-        let cur = pointerToArtboard(e.clientX, e.clientY);
-        if (cur) {
-            const sp = window.snapRootPoint?.(cur);
-            if (sp) cur = sp;
-            shapeDrag.curArt = cur;
-        }
+        shapeDrag.shift = e.shiftKey;
+        shapeDrag.alt = e.altKey;
+        const cur = pointerToArtboard(e.clientX, e.clientY);
+        if (cur) shapeUpdateCur(shapeDrag, cur);
         const drag = shapeDrag;
         teardownDrag();
         shapeDrag = null;
@@ -290,7 +357,11 @@
         window.beginSnapGesture?.({});           // freeze snap targets for this draw
         const sp = window.snapRootPoint?.(startArt);
         if (sp) startArt = sp;
-        shapeDrag = { type: shapeTool, startArt, curArt: startArt, downX: e.clientX, downY: e.clientY, moved: false, pointerId: e.pointerId };
+        shapeDrag = {
+            type: shapeTool, startArt, curArt: startArt, rawCur: startArt,
+            downX: e.clientX, downY: e.clientY, moved: false, pointerId: e.pointerId,
+            shift: e.shiftKey, alt: e.altKey
+        };
         try { previewArea.setPointerCapture(e.pointerId); } catch (_) {}
         previewArea.addEventListener('pointermove', onPointerMove);
         previewArea.addEventListener('pointerup', onPointerUp);
@@ -314,12 +385,13 @@
         setActiveButton();
         previewArea.classList.remove('shape-active');
         hideOverlay();
+        window.refreshSelectionOverlay?.();
     };
 
     window.deactivateShapeTool = () => { if (shapeTool) deactivate(); };
 
     const activate = (type) => {
-        if (shapeTool === type) { deactivate(); return; }
+        if (shapeTool === type) return;
         window.deactivateSelectionTool?.();
         window.deactivateDirectSelectionTool?.();
         window.deactivateHandTool?.();
@@ -330,6 +402,7 @@
         shapeTool = type;
         setActiveButton();
         previewArea.classList.add('shape-active');
+        window.refreshSelectionOverlay?.();
     };
 
     window.toggleRectTool = () => activate('rect');
@@ -360,9 +433,20 @@
 
     // R / E / L select Rectangle / Ellipse / Line (Illustrator) -- inert in text fields /
     // eyedropper / no artboard, and never toggle an already-active shape tool off. Escape cancels
-    // an in-progress draw; otherwise it turns the active tool off (guarded so it never clashes with
-    // the eyedropper's Escape).
+    // an in-progress draw but leaves the Shape tool active. Shift/Alt pressed or released mid-draw retrigger the constraint /
+    // from-center preview without needing pointer movement.
+    const shapeModifierKey = (e, down) => {
+        if (!shapeDrag) return;
+        if (e.key === 'Alt') e.preventDefault();      // keep the browser menu from grabbing focus
+        if (e.key === 'Shift') shapeDrag.shift = down;
+        else if (e.key === 'Alt') shapeDrag.alt = down;
+        else return;
+        if (shapeDrag.rawCur) shapeUpdateCur(shapeDrag, shapeDrag.rawCur);
+        queueDraw();
+    };
+
     document.addEventListener('keydown', (e) => {
+        if (shapeDrag && (e.key === 'Shift' || e.key === 'Alt')) { shapeModifierKey(e, true); return; }
         const shortcutTool = !e.ctrlKey && !e.altKey && !e.metaKey && !e.repeat && !isTextInputFocused()
             ? SHAPE_SHORTCUT[e.key.toLowerCase()] : null;
         if (shortcutTool && shortcutTool !== shapeTool && globalOptimizedSvg && !isEyedropperMode) {
@@ -370,9 +454,12 @@
             activate(shortcutTool);
             return;
         }
-        if (e.key !== 'Escape' || !shapeTool) return;
+        if (e.key !== 'Escape' || !shapeTool || isTextInputFocused()) return;
         if (shapeDrag) { e.preventDefault(); teardownDrag(); shapeDrag = null; hideOverlay(); return; }
-        if (!isEyedropperMode) deactivate();
+    });
+
+    document.addEventListener('keyup', (e) => {
+        if (shapeDrag && (e.key === 'Shift' || e.key === 'Alt')) shapeModifierKey(e, false);
     });
 
     window.syncShapeToolButtons();   // initial state (no SVG yet -> disabled)

@@ -4,7 +4,7 @@
   --text-secondary:#8e8e93; --text-tertiary:#636366; --accent:#007aff; --accent-hover:#0a84ff; 
   --accent-dim:rgba(0,122,255,0.15); --success:#34c759; --radius:8px; 
   --font:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; --properties-panel-w:220px;
-  --right-dock-w:286px; /* appearance-row content width: 44+26+26+64+66 cols + 4*8 gaps + panel padding/border */
+  --right-dock-w:286px; /* paint-row content width: 44+26+26+64+66 cols + 4*8 gaps + panel padding/border */
   --ruler-size:20px; --ruler-bg:#242428; --ruler-tick:rgba(242,242,247,0.48); --ruler-text:rgba(242,242,247,0.68);
   --guide-color:#00dcff; --guide-selected:#3167ff;
   --snap-guide:#ff2fd2;
@@ -31,7 +31,8 @@ h2 { position:relative; margin:0; font-weight:600; letter-spacing:0.5px; flex-sh
 .app-header { position:relative; width:100%; max-width:1400px; min-height:32px; display:block; flex-shrink:0; }
 .app-header h2 { position:absolute; left:50%; top:50%; transform:translate(-50%, -50%); display:flex; align-items:center; gap:0.4em; }
 .app-header .app-logo { position:static; transform:none; height:1.5em; margin-right:0; }
-.header-left-controls { position:absolute; left:0; top:50%; transform:translateY(-50%); display:flex; align-items:center; gap:6px; }
+.app-header .new-artboard-actions { position:absolute; left:0; top:50%; transform:translateY(-50%); }
+.header-left-controls { position:absolute; right:calc(50% + 132px); top:50%; transform:translateY(-50%); display:flex; align-items:center; justify-content:flex-end; gap:6px; }
 .ws-reset-btn { height:30px; display:inline-flex; align-items:center; justify-content:center; box-sizing:border-box; background:var(--bg-secondary); color:var(--text); border:1px solid var(--border); border-radius:4px; padding:0 12px; font-family:var(--font); font-size:11px; font-weight:600; letter-spacing:0.2px; cursor:pointer; transition:0.15s; touch-action:manipulation; box-shadow:inset 0 1px 0 rgba(255,255,255,0.04); }
 .ws-reset-btn:hover { background:var(--bg-secondary); color:var(--text); border-color:var(--border); }
 .header-action-controls { position:absolute; right:0; top:50%; transform:translateY(-50%); display:flex; align-items:center; gap:6px; }
@@ -125,11 +126,17 @@ h2 { position:relative; margin:0; font-weight:600; letter-spacing:0.5px; flex-sh
 .io-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; width:100%; flex:0.85; min-height:0; }
 .panel { background:var(--bg-secondary); border:1px solid var(--border); border-radius:var(--radius); padding:12px; display:flex; flex-direction:column; gap:10px; flex:1; min-height:0; }
 .panel-header-row { position:relative; display:flex; justify-content:space-between; align-items:center; flex-shrink:0; }
+.canvas-header-row { min-height:28px; }
 .panel-header { font-size:13px; font-weight:700; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin:0; flex-shrink:0; }
 
 /* Canvas tool bar -- floats above the canvas, left edge aligned to the canvas left edge
    (properties panel width + 12px preview-container gap). Absolutely positioned so it adds
    no height to the header row and never disturbs the header layout. */
+.quick-svg-presets { position:absolute; left:0; top:50%; transform:translateY(-50%); width:var(--properties-panel-w); height:28px; display:flex; align-items:center; gap:6px; overflow:hidden; }
+.quick-svg-preset { width:34px; height:28px; display:flex; align-items:center; justify-content:center; padding:0; box-sizing:border-box; background:transparent; border:none; border-radius:4px; cursor:pointer; transition:opacity 0.15s ease, transform 0.15s ease; touch-action:manipulation; }
+.quick-svg-preset:hover { opacity:0.86; transform:translateY(-1px); }
+.quick-svg-preset:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+.quick-svg-preset img { display:block; width:28px; height:28px; object-fit:contain; pointer-events:none; }
 .canvas-toolbar { position:absolute; left:calc(var(--properties-panel-w) + 12px); top:50%; transform:translateY(-50%); display:flex; align-items:center; gap:6px; }
 .canvas-toolbar-divider { width:1px; height:18px; margin:0 2px; background:var(--border); flex:0 0 auto; }
 .canvas-tool-btn { display:flex; align-items:center; justify-content:center; width:28px; height:28px; padding:0; box-sizing:border-box; background:var(--surface); border:1px solid var(--border-strong); border-radius:4px; color:var(--text-secondary); cursor:pointer; transition:0.15s; touch-action:manipulation; }
@@ -222,6 +229,12 @@ textarea:focus { border-color:var(--border-strong); }
 .preview-box.hand-active .canvas-statusbar, .preview-box.hand-active .canvas-statusbar * { cursor:default; }
 .preview-box.hand-active .canvas-statusbar button, .preview-box.hand-active .canvas-statusbar button * { cursor:pointer; }
 
+/* Space held: temporary hand-pan armed from any tool (js/hand-tool.js). !important outranks the
+   injected custom-cursor rules of whichever tool is active; the status bar keeps its cursors. */
+.preview-box.space-pan, .preview-box.space-pan * { cursor:grab !important; }
+.preview-box.space-pan .canvas-statusbar, .preview-box.space-pan .canvas-statusbar * { cursor:default !important; }
+.preview-box.space-pan .canvas-statusbar button, .preview-box.space-pan .canvas-statusbar button * { cursor:pointer !important; }
+
 /* Shape tools active (Rectangle / Ellipse / Line): click-drag draws a new shape. */
 .preview-box.shape-active, .preview-box.shape-active * { cursor:crosshair; }
 
@@ -233,10 +246,10 @@ textarea:focus { border-color:var(--border-strong); }
 
 /* Selection bounding-box handles: interactive (the overlay itself is pointer-events:none) + Illustrator resize cursors. */
 .sel-handle { pointer-events:all; }
-.preview-box.sel-active .sel-handle-nwse { cursor:nwse-resize; }
-.preview-box.sel-active .sel-handle-nesw { cursor:nesw-resize; }
-.preview-box.sel-active .sel-handle-ns { cursor:ns-resize; }
-.preview-box.sel-active .sel-handle-ew { cursor:ew-resize; }
+.preview-box.sel-active .sel-handle-nwse, .preview-box.shape-active .sel-handle-nwse { cursor:nwse-resize; }
+.preview-box.sel-active .sel-handle-nesw, .preview-box.shape-active .sel-handle-nesw { cursor:nesw-resize; }
+.preview-box.sel-active .sel-handle-ns, .preview-box.shape-active .sel-handle-ns { cursor:ns-resize; }
+.preview-box.sel-active .sel-handle-ew, .preview-box.shape-active .sel-handle-ew { cursor:ew-resize; }
 
 /* While actively dragging a handle, the pointer is captured -- lock the matching resize cursor everywhere. */
 body.sel-cur-nwse, body.sel-cur-nwse * { cursor:nwse-resize !important; }
@@ -275,38 +288,39 @@ body.ab-cur-move, body.ab-cur-move * { cursor:move !important; }
 .side-panel { background:var(--surface); border:1px solid var(--border); border-radius:4px; padding:12px; display:flex; flex-direction:column; gap:8px; box-sizing:border-box; min-height:0; }
 .panel-properties { width:var(--properties-panel-w); flex-shrink:0; }
 
-/* Right dock: the Appearance panel stacked above the Layers panel in one fixed-width
+/* Right dock: the Paint Panel stacked above the Layers panel in one fixed-width
    column right of the canvas. The dock owns the width the layers panel used to have;
-   Appearance hugs its content and Layers flexes to fill the rest. */
+   Paint hugs its content and Layers flexes to fill the rest. */
 .right-dock { display:flex; flex-direction:column; gap:12px; flex:0 0 var(--right-dock-w); width:var(--right-dock-w); max-width:55vw; min-width:0; min-height:0; }
-.panel-appearance { flex:0 0 auto; }
-.panel-layers { flex:1; min-height:0; }
+.panel-paint { flex:0 0 auto; }
+.panel-layers { position:relative; flex:1; min-height:0; }
+.layers-size-toggle { appearance:none; display:flex; align-items:center; justify-content:center; width:24px; height:24px; padding:0; border:none; border-radius:6px; background:transparent; color:var(--text-secondary); cursor:pointer; transition:color 0.15s ease; touch-action:manipulation; -webkit-tap-highlight-color:transparent; }
+.layers-size-toggle:hover { background:transparent; color:var(--text); }
+.layers-size-toggle:focus-visible { color:var(--text); background:transparent; outline:none; box-shadow:0 0 0 2px rgba(255,255,255,0.16); }
+.layers-size-toggle .icon-svg { width:18px; height:18px; }
 
-/* Appearance rows share one column grid (label | swatch | none | hex | presets) so the
+/* Paint rows share one column grid (label | swatch | none | hex | presets) so the
    Fill and Stroke controls align as a single instrument strip; the Weight row hangs its
    field from the swatch column, per the layout sketch. */
 .ap-rows { display:flex; flex-direction:column; gap:8px; padding-top:2px; }
-.ap-row { display:grid; grid-template-columns:44px 26px 26px auto auto; align-items:center; column-gap:8px; }
+.ap-row { display:grid; grid-template-columns:44px 26px 18px auto auto; align-items:center; column-gap:8px; }
 .ap-label { font-size:10px; font-weight:600; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; -webkit-user-select:none; user-select:none; }
 .ap-hex { justify-self:start; width:64px; }
 .ap-weight-row .ap-weight-mount { grid-column:2 / 6; display:flex; align-items:center; }
-/* Illustrator's None affordance: a white swatch crossed by the red diagonal. Pressed
-   (.active) means the paint IS none; hover previews the same accent as the swatch. */
-.ap-none-btn { position:relative; width:26px; height:26px; box-sizing:border-box; padding:0; background:var(--bg); border:1px solid var(--border-strong); border-radius:2px; cursor:pointer; transition:border-color 0.15s ease, transform 0.1s ease; touch-action:manipulation; -webkit-tap-highlight-color:transparent; }
-.ap-none-btn::before { content:''; position:absolute; inset:3px; background:#fff; }
-.ap-none-btn::after { content:''; position:absolute; inset:3px; background:linear-gradient(to top right, transparent calc(50% - 1px), #ff3b30 calc(50% - 1px), #ff3b30 calc(50% + 1px), transparent calc(50% + 1px)); }
-/* Behaves like a color preset swatch: a subtle scale/border on hover, no accent box; the
-   none-state is already shown by the swatch's red slash, so the button needs no pressed ring. */
-.ap-none-btn:hover { border-color:var(--text-secondary); transform:scale(1.08); }
+/* Compact linked no-color icon, visually grouped with the color launch swatch. */
+.ap-none-btn { width:18px; height:26px; box-sizing:border-box; margin-left:-4px; padding:0; display:flex; align-items:center; justify-content:center; background:transparent; border:none; cursor:pointer; opacity:0.65; transition:opacity 0.15s ease; touch-action:manipulation; -webkit-tap-highlight-color:transparent; }
+.ap-none-btn .icon-svg { width:12px; height:12px; display:block; }
+.ap-none-btn:hover { opacity:1; }
 .ap-none-btn:focus, .ap-none-btn:focus-visible { outline:none; }
-/* Swatch paint states the Appearance panel adds to .picker-wrap: none (white + red slash)
+/* Swatch paint states the Paint Panel adds to .picker-wrap: none (white + red slash)
    and mixed (multi-selection values differ -> '?'). */
 .picker-wrap.lp-none::before { content:''; position:absolute; inset:2px; background:#fff; }
+.picker-wrap-stroke.lp-none::before { background:transparent; border:4px solid #fff; box-sizing:border-box; }
 .picker-wrap.lp-none::after { content:''; position:absolute; inset:2px; background:linear-gradient(to top right, transparent calc(50% - 1px), #ff3b30 calc(50% - 1px), #ff3b30 calc(50% + 1px), transparent calc(50% + 1px)); }
 .picker-wrap.lp-mixed::before { content:'?'; font:700 13px var(--font); color:var(--text-secondary); }
 /* No document loaded (is-disabled), or a selection with nothing paintable in it --
-   raster layers only (is-inert): the appearance body greys out. */
-.panel-appearance.is-disabled .ap-rows, .ap-rows.is-inert { opacity:0.45; pointer-events:none; }
+   raster layers only (is-inert): the Paint Panel body greys out. */
+.panel-paint.is-disabled .ap-rows, .ap-rows.is-inert { opacity:0.45; pointer-events:none; }
 
 .panel-header-flex { display:flex; justify-content:space-between; align-items:center; gap:8px; border-bottom:1px solid var(--border); padding-bottom:6px; margin-bottom:2px; flex-shrink:0; }
 .panel-title { margin:0; font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; font-weight:700; }
@@ -439,8 +453,10 @@ body.ab-cur-move, body.ab-cur-move * { cursor:move !important; }
 .props-scroll::-webkit-scrollbar { display:none; width:0; height:0; }
 
 .layers-wrap { position:relative; flex:1; min-height:0; display:flex; }
-.layers-list { flex:1; overflow-y:auto; overflow-x:clip; -webkit-overflow-scrolling:touch; touch-action:pan-y !important; overscroll-behavior-y:contain; scroll-behavior:auto; will-change:scroll-position; display:flex; flex-direction:column; gap:8px; margin:0 -12px; padding:0 12px; min-height:0; -ms-overflow-style:none; scrollbar-width:none; }
+.layers-list { flex:1; overflow-y:auto; overflow-x:clip; -webkit-overflow-scrolling:touch; touch-action:pan-y !important; overscroll-behavior-y:contain; scroll-behavior:auto; will-change:scroll-position; display:flex; flex-direction:column; gap:5px; margin:0 -12px; padding:0 12px; min-height:0; -ms-overflow-style:none; scrollbar-width:none; }
 .layers-list::-webkit-scrollbar { display:none; width:0; height:0; }
+.layers-marquee { position:absolute; z-index:9; pointer-events:none; box-sizing:border-box; border:1px solid rgba(64,156,255,0.95); background:rgba(0,122,255,0.14); box-shadow:0 0 0 1px rgba(0,0,0,0.2), inset 0 0 0 1px rgba(255,255,255,0.08); }
+body.is-marquee-selecting-layers, body.is-marquee-selecting-layers * { cursor:crosshair !important; user-select:none !important; -webkit-user-select:none !important; }
 
 .custom-scroll-track { position:absolute; top:2px; bottom:2px; right:-12px; width:12px; pointer-events:none; z-index:10; display:flex; justify-content:center; }
 .custom-scroll-track::before, .custom-scroll-track::after { content:""; position:absolute; left:50%; width:8px; height:7px; background:var(--text-tertiary); border-radius:2px; opacity:0; clip-path:polygon(50% 0, 100% 100%, 0 100%); transition:opacity 0.18s cubic-bezier(0.4, 0.0, 0.2, 1), background-color 0.18s cubic-bezier(0.4, 0.0, 0.2, 1); pointer-events:none; }
@@ -455,6 +471,7 @@ body.ab-cur-move, body.ab-cur-move * { cursor:move !important; }
 .custom-scroll-thumb:active { opacity:1 !important; }
 
 .layer-item { position:relative; display:flex; flex-direction:column; gap:0; padding:0; background:var(--bg-secondary); border:1px solid var(--border); border-radius:6px; font-size:12px; flex-shrink:0; width:100%; box-sizing:border-box; box-shadow:0 1px 3px rgba(0,0,0,0.1); overflow:hidden; transition:border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease; }
+.layer-item:not(.is-selected):hover { border-color:var(--border-strong); box-shadow:0 1px 3px rgba(0,0,0,0.14), inset 0 1px 0 rgba(255,255,255,0.035); }
 
 /* --- Layer selection: restrained accent (Figma / Sketch) --- */
 /* Accent border + a unified blue tint: a very faint wash across the whole card
@@ -484,7 +501,7 @@ body.ab-cur-move, body.ab-cur-move * { cursor:move !important; }
 .layer-delete-btn[hidden] { display:none; }
 .layer-delete-btn .icon-svg { width:18px; height:18px; }
 
-/* Delete: collapse the card to nothing; the -8px margin absorbs the .layers-list gap:8px so
+/* Delete: collapse the card to nothing; the negative margin absorbs the .layers-list gap so
    the cards below slide up by exactly one slot. Insert (duplicate) runs the same in reverse,
    growing a fresh card from nothing so the cards below slide down. Same curve as the twirl collapse. */
 .layer-item.is-deleting, .layer-item.is-inserting { transition:height 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.22s ease, margin 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); pointer-events:none; overflow:hidden; will-change:height, opacity; }
@@ -494,9 +511,9 @@ body.ab-cur-move, body.ab-cur-move * { cursor:move !important; }
 }
 
 /* One compact row per layer: thumbnail | name | eye. The 44px right padding clears the
-   absolutely-pinned eye; the whole row is the drag/select surface (grab cursor). */
-.layer-title-row { display:flex; align-items:center; gap:8px; position:relative; background:var(--bg); border-radius:6px; padding:6px 72px 6px 8px; width:100%; min-height:48px; box-sizing:border-box; cursor:grab; transition:background 0.16s ease; }
-.layer-item:not(.is-selected) .layer-title-row:hover { background:var(--bg-hover); }
+   absolutely-pinned eye; the whole row is the drag/select surface. */
+.layer-title-row { display:flex; align-items:center; gap:8px; position:relative; background:var(--bg); border-radius:6px; padding:6px 72px 6px 7px; width:100%; min-height:48px; box-sizing:border-box; cursor:default; transition:background 0.16s ease; }
+.layer-item:not(.is-selected):hover .layer-title-row { background:linear-gradient(rgba(255,255,255,0.035), rgba(255,255,255,0.035)), var(--bg); }
 .layer-title-input { cursor:text; }
 
 /* --- Layer drag-to-reorder (z-order) --- */
@@ -520,13 +537,15 @@ body.is-reordering-layers, body.is-reordering-layers * { cursor:grabbing !import
 .layer-thumb-img, .layer-thumb-svg { display:block; width:100%; height:100%; object-fit:contain; }
 .layer-eye { position:absolute; right:10px; top:50%; transform:translateY(-50%); }
 .layer-eye:hover, .layer-eye:active { background:none; }
-.layer-eye .icon-svg { transition:color 0.12s ease; }
-.layer-eye:hover .icon-svg { color:var(--text); }
+.layer-eye .icon-svg { transition:color 0.12s ease, opacity 0.12s ease, filter 0.12s ease; }
+.layer-eye:hover .icon-svg { color:var(--text); filter:drop-shadow(0 0 4px rgba(242,242,247,0.65)); }
+.layer-eye.hidden-state .icon-svg { opacity:0.38; }
+.layer-eye.hidden-state:hover .icon-svg { opacity:0.62; }
 .layer-item.is-layer-hidden .layer-thumb { opacity:0.42; filter:grayscale(100%); }
 .layer-item.is-layer-hidden .layer-title { color:var(--text-secondary); }
 
 /* Lock sits just left of the eye; both hide/unhide and lock/unlock stay live regardless of
-   each other. A locked card can't be selected or dragged, so its row drops the grab cursor. */
+   each other. Locked cards remain selectable and reorderable in the panel. */
 .layer-lock { position:absolute; right:40px; top:50%; transform:translateY(-50%); }
 .layer-lock:hover, .layer-lock:active { background:none; }
 .layer-lock .icon-svg { transition:color 0.12s ease; }
@@ -534,8 +553,18 @@ body.is-reordering-layers, body.is-reordering-layers * { cursor:grabbing !import
 .layer-item.is-locked .layer-title-row { cursor:default; }
 
 .layer-toggle { cursor:pointer; display:flex; align-items:center; justify-content:center; color:var(--text-secondary); padding:4px; width:26px; height:26px; box-sizing:border-box; transition:0.1s; border-radius:4px; touch-action:manipulation; flex-shrink:0; }
-.layer-toggle:hover { color:var(--text); background:var(--bg-hover); }
-.layer-toggle.hidden-state { opacity:1; }
+.layer-toggle:hover { color:var(--text); background:transparent; }
+
+/* Compact density keeps the existing layer card design, but brings its controls onto one
+   tighter rhythm. Large mode is the untouched default above. */
+.panel-layers.is-small .layer-title-row { gap:5px; min-height:30px; padding:3px 62px 3px 4px; }
+.panel-layers.is-small .layer-thumb { width:22px; height:22px; flex-basis:22px; border-radius:3px; }
+.panel-layers.is-small .layer-title { font-size:10px; }
+.panel-layers.is-small .layer-title-input { font-size:10px; padding:1px 4px; }
+.panel-layers.is-small .layer-toggle { width:22px; height:22px; padding:3px; }
+.panel-layers.is-small .layer-toggle .icon-svg { width:14px; height:14px; }
+.panel-layers.is-small .layer-eye { right:7px; }
+.panel-layers.is-small .layer-lock { right:32px; }
 
 /* Illustrator-style fill/stroke launch swatch: sharp swatch in a 2px #1a1a1e mat with a slightly-rounded --border-strong outer frame */
 .picker-wrap { position:relative; width:26px; height:26px; flex:0 0 auto; box-sizing:border-box; display:flex; align-items:center; justify-content:center; background:var(--bg); border:1px solid var(--border-strong); border-radius:2px; cursor:pointer; touch-action:manipulation; transition:border-color 0.15s ease; }
@@ -820,12 +849,16 @@ input[type="file"] { display:none; }
   }
   /* The properties panel stacks full-width here, so the canvas no longer starts at 192px;
      let the tool bar flow inline within the header row instead. */
+  .quick-svg-presets { position:static; transform:none; width:auto; flex:0 0 auto; }
   .canvas-toolbar { position:static; transform:none; left:auto; }
   .pen-mode-bar { position:static; transform:none; left:auto; }
   .history-bar { position:static; transform:none; right:auto; }
-  .app-header { min-height:64px; }
+  .app-header { min-height:96px; }
   .app-header h2 { top:0; transform:translateX(-50%); }
-  .header-guide-controls { left:50%; top:48px; transform:translate(-50%, -50%); width:auto; justify-content:center; }
+  .app-header .new-artboard-actions { top:32px; }
+  .header-left-controls { left:auto; right:0; top:32px; transform:translateY(-50%); }
+  .header-action-controls { top:0; transform:none; }
+  .header-guide-controls { left:50%; top:80px; transform:translate(-50%, -50%); width:auto; justify-content:center; }
   .panel-properties {
     width: 100%;
     flex-direction: row;
@@ -864,9 +897,18 @@ input[type="file"] { display:none; }
   }
 }
 
+@media (max-width: 1120px) and (min-width: 1025px) {
+  .app-header { min-height:96px; }
+  .app-header h2 { top:0; transform:translateX(-50%); }
+  .app-header .new-artboard-actions { top:32px; }
+  .header-left-controls { left:auto; right:0; top:32px; transform:translateY(-50%); }
+  .header-action-controls { top:0; transform:none; }
+  .header-guide-controls { left:50%; top:80px; transform:translate(-50%, -50%); width:auto; justify-content:center; }
+}
+
 /* ---- New Artboard button + dialog ---------------------------------------- */
-/* Standout accent-gradient button that replaces the canvas panel's "SVG Preview"
-   label, plus a create-artboard dialog whose header/footer mirror the color-picker
+/* Standout accent-gradient app-header button, plus a create-artboard dialog
+   whose header/footer mirror the color-picker
    modal (var(--bg-secondary) bars + bordered edges). The signature element is the
    live proportional preview rect (.na-preview). */
 

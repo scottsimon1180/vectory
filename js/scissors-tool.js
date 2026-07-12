@@ -9,6 +9,7 @@
 
     let scissorsActive = false;
     let scissorsHoverIndex = null;
+    let scissorsSelectedIndex = null;  // persistent shared selection shown when there is no hover target
     let scissorsPointer = null;       // { x, y, target } in client px
     let scissorsRaf = 0;
     let scissorsAnimRaf = 0, scissorsAnimUntil = 0;
@@ -18,6 +19,7 @@
     const SCISSORS_GREEN = '#00E676';
     const SCISSORS_W = '1.5';
     const SCISSORS_ANCHOR_PX = 6;
+    const SCISSORS_ANCHOR_HOVER_PX = 8;
     const SCISSORS_HIT_PX = 6;
     const SCISSORS_X_PX = 8;
     const SVGNS = 'http://www.w3.org/2000/svg';
@@ -184,11 +186,22 @@
         return { idx: String(idx), g, globalShape, model, hit, near };
     };
 
+    const scissorsSelectedData = (idx) => {
+        const g = scissorsGeom(idx);
+        const globalShape = scissorsGlobalShape(idx);
+        const bridge = modelBridge();
+        if (!g || !globalShape || !bridge || lockedLayers.has(String(idx))) return null;
+        const model = bridge.getModel(globalShape, idx);
+        return model ? { idx: String(idx), g, globalShape, model, hit: null, near: false } : null;
+    };
+
     const scissorsResolveTarget = (screenMatrix) => {
         if (!scissorsPointer || isBlockedTarget(scissorsPointer.target)) return null;
         const directShape = scissorsShapeAtPoint(scissorsPointer.x, scissorsPointer.y, scissorsPointer.target);
         const directIdx = directShape ? directShape.getAttribute('data-pf-index') : null;
-        const idx = directIdx != null ? String(directIdx) : scissorsHoverIndex;
+        const idx = directIdx != null ? String(directIdx)
+            : scissorsHoverIndex != null ? scissorsHoverIndex
+            : scissorsSelectedIndex;
         if (idx == null) return null;
         const data = scissorsHitData(idx, scissorsPointer.x, scissorsPointer.y, screenMatrix);
         if (!data || (directIdx == null && !data.near)) return null;
@@ -229,6 +242,26 @@
         }));
     };
 
+    // Match Direct Selection's 6px -> 8px anchor hover growth so the user can see which
+    // exact anchor is locked as the next Scissors cut target.
+    const scissorsDrawAnchorHover = (data, screenMatrix) => {
+        if (!data.hit || data.hit.kind !== 'anchor') return;
+        const sub = data.model.subpaths[data.hit.sub];
+        const anchor = sub && sub.anchors[data.hit.ai];
+        if (!anchor) return;
+        const p = screenMatrix.multiply(data.g.F).transformPoint(new DOMPoint(anchor.x, anchor.y));
+        const half = SCISSORS_ANCHOR_HOVER_PX / 2;
+        const r = document.createElementNS(SVGNS, 'rect');
+        r.setAttribute('x', p.x - half); r.setAttribute('y', p.y - half);
+        r.setAttribute('width', SCISSORS_ANCHOR_HOVER_PX); r.setAttribute('height', SCISSORS_ANCHOR_HOVER_PX);
+        r.setAttribute('fill', '#ffffff');
+        r.setAttribute('stroke', SCISSORS_GREEN);
+        r.setAttribute('stroke-width', '1');
+        r.setAttribute('pointer-events', 'none');
+        r.setAttribute('data-scissors-anchor-hover', '');
+        scissorsOverlay.appendChild(r);
+    };
+
     const scissorsDrawCutMarker = (data, screenMatrix) => {
         if (!data.hit || !data.hit.point) return;
         const full = screenMatrix.multiply(data.g.F);
@@ -251,10 +284,11 @@
     };
 
     const redrawScissorsOverlay = () => {
-        if (!scissorsActive || !scissorsOverlay || !scissorsPointer) { hideScissorsOverlay(); return; }
+        if (!scissorsActive || !scissorsOverlay) { hideScissorsOverlay(); return; }
         const screenMatrix = scissorsScreenMatrix();
         if (!screenMatrix) { hideScissorsOverlay(); return; }
-        const data = scissorsResolveTarget(screenMatrix);
+        const data = (scissorsPointer ? scissorsResolveTarget(screenMatrix) : null)
+            || (scissorsSelectedIndex != null ? scissorsSelectedData(scissorsSelectedIndex) : null);
         if (!data) {
             scissorsHoverIndex = null;
             scissorsOverlay.replaceChildren();
@@ -270,8 +304,9 @@
             scissorsDrawnIndex = data.idx;
             scissorsChromeDirty = false;
         } else {
-            scissorsOverlay.querySelectorAll('[data-scissors-marker]').forEach(el => el.remove());
+            scissorsOverlay.querySelectorAll('[data-scissors-marker], [data-scissors-anchor-hover]').forEach(el => el.remove());
         }
+        scissorsDrawAnchorHover(data, screenMatrix);
         scissorsDrawCutMarker(data, screenMatrix);
         scissorsOverlay.toggleAttribute('hidden', !scissorsOverlay.children.length);
     };
@@ -392,10 +427,12 @@
         scissorsSelectAffected(affected, newIdx == null ? idx : newIdx, converted || newIdx != null);
 
         scissorsHoverIndex = String(newIdx == null ? idx : newIdx);
+        scissorsSelectedIndex = scissorsHoverIndex;
         scissorsPointer = { x: e.clientX, y: e.clientY, target: null };
         scissorsKeepHoverOnRefresh = true;
         window.setHistoryLabel?.('Cut Path', 'scissors-tool');
         renderOutput(false);
+        window.adoptCanvasSelection?.(affected);
         window.updateAllScrollbars?.();
         return true;
     };
@@ -409,7 +446,10 @@
     });
 
     previewArea.addEventListener('pointerleave', () => {
-        if (scissorsActive && !window.isHandToolTemporaryPan?.()) clearScissorsHover();
+        if (scissorsActive && !window.isHandToolTemporaryPan?.()) {
+            clearScissorsHover();
+            if (scissorsSelectedIndex != null) queueScissorsRedraw();
+        }
     });
 
     previewArea.addEventListener('pointerdown', (e) => {
@@ -426,8 +466,8 @@
     /* ==== Renderer / import hooks =========================================================== */
 
     window.syncScissorsToolOverlay = (animate = false) => {
-        if (window.isGuideDragActive?.()) { hideScissorsOverlay(); return; }
-        if (!scissorsActive || !scissorsPointer) { hideScissorsOverlay(); return; }
+        if (window.isGuideDragActive?.() || window.isHandToolTemporaryPan?.()) { hideScissorsOverlay(); return; }
+        if (!scissorsActive || (!scissorsPointer && scissorsSelectedIndex == null)) { hideScissorsOverlay(); return; }
         scissorsChromeDirty = true;
         if (animate) {
             scissorsAnimUntil = performance.now() + VIEW_TRANSITION_MS + 40;
@@ -446,15 +486,22 @@
     window.refreshScissorsToolOverlay = () => {
         if (window.isGuideDragActive?.()) { hideScissorsOverlay(); return; }
         if (!scissorsActive) { hideScissorsOverlay(); return; }
-        if (!scissorsKeepHoverOnRefresh) { clearScissorsHover(); return; }
+        if (!scissorsKeepHoverOnRefresh) {
+            scissorsHoverIndex = null;
+            scissorsPointer = null;
+        }
         scissorsKeepHoverOnRefresh = false;
+        if (scissorsSelectedIndex != null && !scissorsSelectedData(scissorsSelectedIndex)) scissorsSelectedIndex = null;
         scissorsChromeDirty = true;
         if (scissorsRaf) { cancelAnimationFrame(scissorsRaf); scissorsRaf = 0; }
         if (scissorsAnimRaf) { cancelAnimationFrame(scissorsAnimRaf); scissorsAnimRaf = 0; scissorsAnimUntil = 0; }
         redrawScissorsOverlay();
     };
 
-    window.clearScissorsToolState = clearScissorsHover;
+    window.clearScissorsToolState = () => {
+        scissorsSelectedIndex = null;
+        clearScissorsHover();
+    };
 
     /* ==== Activation / shortcut ============================================================= */
 
@@ -463,13 +510,14 @@
         $('btnScissorsTool')?.classList.remove('active');
         previewArea.classList.remove('scissors-active');
         scissorsKeepHoverOnRefresh = false;
+        scissorsSelectedIndex = null;
         clearScissorsHover();
     };
 
     window.deactivateScissorsTool = () => { if (scissorsActive) scissorsDeactivate(); };
 
     window.toggleScissorsTool = (btn) => {
-        if (scissorsActive) { scissorsDeactivate(); return; }
+        if (scissorsActive) return;
         window.deactivateSelectionTool?.();
         window.deactivateDirectSelectionTool?.();
         window.deactivateHandTool?.();
@@ -479,6 +527,11 @@
         scissorsActive = true;
         (btn || $('btnScissorsTool'))?.classList.add('active');
         previewArea.classList.add('scissors-active');
+        scissorsSelectedIndex = [...editSelectedIndices].find(idx => {
+            const shape = scissorsPreviewSvg()?.querySelector(`[data-pf-index="${idx}"]`);
+            return !!scissorsShapeFromTarget(shape);
+        }) || null;
+        if (scissorsSelectedIndex != null) redrawScissorsOverlay();
     };
 
     document.addEventListener('keydown', (e) => {
@@ -488,7 +541,11 @@
             window.toggleScissorsTool();
             return;
         }
-        if (e.key === 'Escape' && scissorsActive && !isEyedropperMode) scissorsDeactivate();
+        if (e.key === 'Escape' && scissorsActive && !isTextInputFocused() && !isEyedropperMode && scissorsPointer) {
+            e.preventDefault();
+            clearScissorsHover();
+            if (scissorsSelectedIndex != null) queueScissorsRedraw();
+        }
     });
 
 })();

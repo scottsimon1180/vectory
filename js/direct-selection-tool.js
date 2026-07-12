@@ -795,6 +795,7 @@
     /* ==== Activation ======================================================================== */
 
     const dselDeactivate = () => {
+        dselCommitNudge();               // flush an uncommitted nudge burst before the tool leaves
         if (dselMarquee) dselTeardownMarquee();
         if (dselDrag) dselCancelDrag();
         dselActive = false;
@@ -814,7 +815,7 @@
 
     // Toolbar button handler. Activating turns other canvas tools off (one active tool at a time).
     window.toggleDirectSelectionTool = (btn) => {
-        if (dselActive) { dselDeactivate(); return; }
+        if (dselActive) return;
         window.deactivateSelectionTool?.();
         window.deactivateHandTool?.();
         window.deactivateArtboardTool?.();
@@ -1016,7 +1017,12 @@
             const root = dselPointerRoot(dselDragPending.x, dselDragPending.y);
             if (!root) return;
             let rdx = root.x - d.baseRoot.x, rdy = root.y - d.baseRoot.y;
-            if (d.snapStart) {
+            if (d.shift) {
+                // Shift constrains the anchor move to the nearest 45-degree direction
+                // (constraint wins over snapping, Illustrator-style).
+                const c = constrainVec45(rdx, rdy);
+                rdx = c.x; rdy = c.y;
+            } else if (d.snapStart) {
                 const sp = window.snapRootPoint?.({ x: d.snapStart.x + rdx, y: d.snapStart.y + rdy });
                 if (sp) { rdx = sp.x - d.snapStart.x; rdy = sp.y - d.snapStart.y; }
             }
@@ -1067,6 +1073,7 @@
         }
         if (e.altKey) d.broken = true;       // Alt breaks a smooth pair; stays broken for this drag
         d.lastAlt = e.altKey;
+        d.shift = e.shiftKey;                // live 45-degree constraint for anchor drags
         dselDragPending = { x: e.clientX, y: e.clientY };
         if (!dselDragRaf) dselDragRaf = requestAnimationFrame(dselApplyDragFrame);
     };
@@ -1134,7 +1141,7 @@
             F: g.F, Finv: g.Finv,
             collapseTo: collapseTo != null ? collapseTo : null,
             converted: false, originalEl: null, snapshot: null, globalShape: null, model: null,
-            targets: null, lastAlt: false
+            targets: null, lastAlt: false, shift: e.shiftKey
         };
         dselStartCapture(e);
     };
@@ -1300,6 +1307,7 @@
     previewArea.addEventListener('pointerdown', (e) => {
         if (window.isGuideDragActive?.()) return;
         if (!dselActive || e.button !== 0 || dselDrag || dselMarquee) return;
+        if (window.isHandToolTemporaryPan?.()) return;      // Space / middle-drag pan owns the press
 
         const handleEl = (e.target && e.target.closest) ? e.target.closest('.dsel-handle-hit') : null;
         if (handleEl) {
@@ -1402,11 +1410,122 @@
         e.preventDefault();
     });
 
+    /* ==== Keyboard editing: delete anchors + arrow nudges =================================== */
+
+    // Group the selected anchor keys by owning shape (parsed, ready for per-shape model work).
+    const dselAnchorsByShape = () => {
+        const byShape = new Map();
+        dselAnchors.forEach(key => {
+            const k = dselParseKey(key);
+            if (!byShape.has(k.idx)) byShape.set(k.idx, []);
+            byShape.get(k.idx).push(k);
+        });
+        return byShape;
+    };
+
+    // Delete every selected anchor (Pen Minus-mode semantics): the path reshapes with the
+    // neighbours' existing handles, a subpath left with <2 anchors is dropped, and a shape left
+    // with no subpaths is deleted outright. Primitives convert to <path> first (the usual
+    // first-edit conversion). One committed render for the whole set.
+    const dselDeleteSelectedAnchors = () => {
+        if (!globalOptimizedSvg || !dselAnchors.size) return false;
+        let any = false, anyConverted = false, anyRemovedShape = false;
+        dselAnchorsByShape().forEach((keys, idx) => {
+            let globalShape = globalOptimizedSvg.querySelector(`[data-pf-index="${idx}"]`);
+            if (!globalShape) return;
+            const model = dselGetModel(globalShape, idx);
+            if (!model) return;
+            if (model.needsConversion) {
+                globalShape = dselConvertToPath(globalShape, model);
+                anyConverted = true;
+            }
+            // Deepest-first so earlier anchor indices stay valid while splicing.
+            keys.sort((a, b) => (b.sub - a.sub) || (b.ai - a.ai));
+            keys.forEach(k => {
+                const sub = model.subpaths[k.sub];
+                if (sub && sub.anchors[k.ai]) { sub.anchors.splice(k.ai, 1); any = true; }
+            });
+            for (let i = model.subpaths.length - 1; i >= 0; i--) {
+                if (model.subpaths[i].anchors.length < 2) model.subpaths.splice(i, 1);
+            }
+            if (!model.subpaths.length) {
+                globalShape.remove();
+                dselModels.delete(String(idx));
+                dselObjects.delete(String(idx));
+                anyRemovedShape = true;
+            } else {
+                dselWriteGeometry(globalShape, model);
+            }
+        });
+        if (!any && !anyRemovedShape) return false;
+        dselAnchors.clear();                    // survivors reindexed -> the old keys are stale
+        if (dselPrimary != null && !dselObjects.has(dselPrimary)) dselPrimary = dselObjects.size ? [...dselObjects][0] : null;
+        if (anyRemovedShape) buildLayersPanel();
+        window.setHistoryLabel?.('Delete Anchor', 'minus');
+        renderOutput(false);
+        if (anyConverted && !anyRemovedShape) dselRebindLayersPanel();
+        window.setLayerSelectionSet?.([...dselObjects]);
+        window.setEditSelectionSet?.([...dselObjects]);
+        redrawDselOverlay();
+        window.refreshElementProperties?.();
+        return true;
+    };
+
+    // Arrow-key nudges (1px / Shift 10px / Ctrl+Shift 0.1px, artboard units): the selected anchors move
+    // by a shared root-space delta (each shape converts it through its own Finv linear part, same
+    // as an anchor drag). Renders are deferred during a key-repeat burst; the commit (one history
+    // entry labeled "Nudge") lands on arrow keyup or after a short idle.
+    const DSEL_ARROW = {
+        ArrowLeft: { dx: -1, dy: 0 }, ArrowRight: { dx: 1, dy: 0 },
+        ArrowUp: { dx: 0, dy: -1 }, ArrowDown: { dx: 0, dy: 1 }
+    };
+    const DSEL_NUDGE_COMMIT_MS = 500;
+    let dselNudgeTimer = 0, dselNudgePending = false, dselNudgeConverted = false;
+    const dselCommitNudge = () => {
+        if (dselNudgeTimer) { clearTimeout(dselNudgeTimer); dselNudgeTimer = 0; }
+        if (!dselNudgePending) return;
+        dselNudgePending = false;
+        window.setHistoryLabel?.('Nudge', 'direct-selection');
+        renderOutput(false);
+        if (dselNudgeConverted) { dselNudgeConverted = false; dselRebindLayersPanel(); }
+    };
+
+    const dselNudgeAnchors = (dx, dy) => {
+        if (!globalOptimizedSvg || !dselAnchors.size) return false;
+        let applied = false;
+        dselAnchorsByShape().forEach((keys, idx) => {
+            let globalShape = globalOptimizedSvg.querySelector(`[data-pf-index="${idx}"]`);
+            const g = dselGeom(idx);
+            const model = globalShape && g ? dselGetModel(globalShape, idx) : null;
+            if (!model) return;
+            if (model.needsConversion) {
+                globalShape = dselConvertToPath(globalShape, model);
+                dselNudgeConverted = true;
+            }
+            const ldx = g.Finv.a * dx + g.Finv.c * dy;
+            const ldy = g.Finv.b * dx + g.Finv.d * dy;
+            keys.forEach(k => {
+                const a = model.subpaths[k.sub] && model.subpaths[k.sub].anchors[k.ai];
+                if (!a) return;
+                a.x += ldx; a.y += ldy;
+                if (a.hIn) { a.hIn.x += ldx; a.hIn.y += ldy; }
+                if (a.hOut) { a.hOut.x += ldx; a.hOut.y += ldy; }
+                applied = true;
+            });
+            dselWriteGeometry(globalShape, model);
+        });
+        if (applied) {
+            renderOutput(true);
+            window.refreshElementProperties?.();
+        }
+        return applied;
+    };
+
     // A selects the Direct Selection tool (Illustrator) -- inert in text fields / eyedropper / no artboard.
     // Escape cancels an in-progress drag (revert geometry); with a multi selection it clears the
-    // selection (tool stays on); otherwise it turns the tool off (guarded so it never clashes with
-    // the eyedropper's Escape). Ctrl+A selects every anchor of every visible vector shape --
-    // skipped while a text field has focus so native select-all survives.
+    // selection (tool stays on). Ctrl+A selects every anchor of every visible vector shape --
+    // skipped while a text field has focus so native select-all survives. Delete/Backspace delete
+    // the selected anchors (or the targeted objects when no anchors are selected); arrows nudge.
     document.addEventListener('keydown', (e) => {
         if ((e.key === 'a' || e.key === 'A') && !e.ctrlKey && !e.altKey && !e.metaKey && !e.repeat
             && !dselActive && globalOptimizedSvg && !isTextInputFocused() && !isEyedropperMode) {
@@ -1415,10 +1534,18 @@
             return;
         }
         if (!dselActive) return;
+        if (e.key === 'Escape' && isTextInputFocused()) return;
+        if (dselDrag && e.key === 'Shift') {
+            // Shift pressed mid-drag (no pointer movement needed): constrain immediately.
+            dselDrag.shift = true;
+            if (dselDrag.moved && dselDragPending && !dselDragRaf) dselDragRaf = requestAnimationFrame(dselApplyDragFrame);
+            return;
+        }
         if (e.key === 'Escape') {
             if (dselMarquee) { e.preventDefault(); dselTeardownMarquee(); redrawDselOverlay(); return; }
             if (dselDrag) { e.preventDefault(); dselCancelDrag(); return; }
-            if (dselAnchors.size > 1 || dselObjects.size > 1) {
+            if ((dselAnchors.size || dselObjects.size) && !isEyedropperMode) {
+                e.preventDefault();
                 dselObjects.clear();
                 dselAnchors.clear();
                 dselPrimary = null;
@@ -1428,7 +1555,6 @@
                 window.refreshElementProperties?.();
                 return;
             }
-            if (!isEyedropperMode) dselDeactivate();
             return;
         }
         if ((e.key === 'a' || e.key === 'A') && e.ctrlKey && !e.altKey && !e.repeat && !isTextInputFocused()) {
@@ -1451,8 +1577,59 @@
             window.setLayerSelectionSet?.([...dselObjects]);
             window.setEditSelectionSet?.([...dselObjects]);
             window.refreshElementProperties?.();
+            return;
+        }
+        if (dselDrag || dselMarquee || isTextInputFocused()) return;
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+            if (dselAnchors.size) {
+                e.preventDefault();
+                dselCommitNudge();               // flush a pending nudge before the delete commits
+                dselDeleteSelectedAnchors();
+                return;
+            }
+            if (dselObjects.size) {
+                // No anchors selected: delete the targeted object(s) (Illustrator-style).
+                e.preventDefault();
+                dselCommitNudge();
+                window.deleteSelectedLayer?.();  // panel selection mirrors dselObjects
+                dselObjects.clear();
+                dselAnchors.clear();
+                dselPrimary = null;
+                redrawDselOverlay();
+            }
+            return;
+        }
+        const arrow = DSEL_ARROW[e.key];
+        if (arrow && !e.altKey && !e.metaKey) {
+            if (e.ctrlKey && !e.shiftKey) return;                 // plain Ctrl+arrow is unclaimed
+            const step = e.ctrlKey ? 0.1 : e.shiftKey ? 10 : 1;   // Ctrl+Shift = fine 0.1px
+            let applied = false;
+            if (dselAnchors.size) applied = dselNudgeAnchors(arrow.dx * step, arrow.dy * step);
+            else if (dselObjects.size) {
+                // No anchors selected: nudge the targeted object(s) through the shared engine
+                // (the edit selection already mirrors dselObjects).
+                applied = !!window.applySelectionRootMatrix?.(new DOMMatrix().translate(arrow.dx * step, arrow.dy * step), true);
+                if (applied) window.refreshElementProperties?.();
+            }
+            if (applied) {
+                e.preventDefault();
+                dselNudgePending = true;
+                if (dselNudgeTimer) clearTimeout(dselNudgeTimer);
+                dselNudgeTimer = setTimeout(dselCommitNudge, DSEL_NUDGE_COMMIT_MS);
+            }
         }
     });
+
+    // Keyup: commit a nudge burst; release the mid-drag Shift constraint without pointer movement.
+    document.addEventListener('keyup', (e) => {
+        if (DSEL_ARROW[e.key]) { dselCommitNudge(); return; }
+        if (dselDrag && e.key === 'Shift') {
+            dselDrag.shift = false;
+            if (dselDrag.moved && dselDragPending && !dselDragRaf) dselDragRaf = requestAnimationFrame(dselApplyDragFrame);
+        }
+    });
+
+    window.addEventListener('blur', dselCommitNudge);
 
     /* ==== Properties-panel bridge (anchor mode) ============================================= */
 

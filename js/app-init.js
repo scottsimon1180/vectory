@@ -177,10 +177,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Layer selection: clicking a layer row selects that card. Selection persists while
-    // interacting inside any layer card, the canvas preview, the Appearance panel and its
+    // interacting inside any layer card, the canvas preview, the Paint Panel and its
     // stroke-preset dropdown (their controls ACT on the current selection, so pressing one
-    // must not clear it first), the layers scrollbar, or the layers toolbar (same reason:
-    // Delete/Duplicate act on the selection); clicking anywhere else clears it.
+    // must not clear it first), the layers scrollbar, or a layers-toolbar button (same reason:
+    // Delete/Duplicate act on the selection); clicking anywhere else clears it, including
+    // empty space in the Layers header or footer.
     document.addEventListener('pointerdown', (e) => {
 
         const header = e.target.closest('.layer-title-row');
@@ -199,7 +200,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         }
 
-        if (e.target.closest('.layer-item') || e.target.closest('.preview-box') || e.target.closest('.panel-properties') || e.target.closest('.panel-appearance') || e.target.closest('.stroke-dropdown') || e.target.closest('.panel-layers .custom-scroll-track') || e.target.closest('.panel-resizer') || e.target.closest('.layers-toolbar')) return;
+        if (e.target.closest('.layer-item') || e.target.closest('.preview-box') || e.target.closest('.panel-properties') || e.target.closest('.panel-paint') || e.target.closest('.stroke-dropdown') || e.target.closest('.panel-layers .custom-scroll-track') || e.target.closest('.panel-resizer') || e.target.closest('.layers-toolbar button')) return;
 
         window.clearLayerSelection();
 
@@ -207,5 +208,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Layer drag-to-reorder (z-order) — delegated pointer handling on the layers list.
     if (window.initLayerDnD) window.initLayerDnD();
+
+    // Drag on empty Layers-panel space selects every intersected layer card.
+    if (window.initLayerMarquee) window.initLayerMarquee();
 
 });

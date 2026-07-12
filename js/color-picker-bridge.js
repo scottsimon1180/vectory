@@ -222,7 +222,7 @@ previewArea.addEventListener('pointerdown', (e) => {
 
 
     // Direct color picker switching when open: clicking a shape retargets the picker to
-    // that layer through the Appearance panel -- the layer becomes the panel selection and
+    // that layer through the Paint Panel -- the layer becomes the panel selection and
     // the picker relaunches on its fill (or stroke, when the shape has no fill).
 
     if (cpActiveCallback && isValidShape) {
@@ -275,7 +275,7 @@ previewArea.addEventListener('pointerdown', (e) => {
 
                 window.setLayerSelectionSet?.([indexStr]);
 
-                window.appearanceOpenPicker?.(editStroke ? 'stroke' : 'fill');
+                window.paintOpenPicker?.(editStroke ? 'stroke' : 'fill');
 
             }
 
